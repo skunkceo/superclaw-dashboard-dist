@@ -19,6 +19,6 @@ The CLI will notify you when updates are available. Run:
 superclaw update
 ```
 
-## Documentation
+## More Information
 
-Visit [superclaw.dev](https://superclaw.dev) for full documentation.
+Visit [skunkglobal.com/superclaw](https://skunkglobal.com/superclaw) to learn more.
