@@ -49,14 +49,25 @@ export function AuthWrapper({ children, requiredRole = 'view' }: AuthWrapperProp
   const router = useRouter();
   const pathname = usePathname();
 
+  const PUBLIC_PATHS = ['/login', '/welcome'];
+
   useEffect(() => {
     const checkAuth = async () => {
       try {
         const res = await fetch('/api/auth/me');
         const data = await res.json();
 
-        if (data.needsSetup || !data.authenticated) {
-          if (pathname !== '/login') {
+        if (data.needsSetup) {
+          // Fresh install — no users yet. Send to welcome splash.
+          if (!PUBLIC_PATHS.includes(pathname)) {
+            router.push('/welcome');
+          }
+          setLoading(false);
+          return;
+        }
+
+        if (!data.authenticated) {
+          if (!PUBLIC_PATHS.includes(pathname)) {
             router.push('/login');
           }
           setLoading(false);
@@ -65,7 +76,7 @@ export function AuthWrapper({ children, requiredRole = 'view' }: AuthWrapperProp
 
         setUser(data.user);
       } catch {
-        if (pathname !== '/login') {
+        if (!PUBLIC_PATHS.includes(pathname)) {
           router.push('/login');
         }
       } finally {
@@ -74,6 +85,7 @@ export function AuthWrapper({ children, requiredRole = 'view' }: AuthWrapperProp
     };
 
     checkAuth();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pathname, router]);
 
   const logout = async () => {
@@ -95,9 +107,18 @@ export function AuthWrapper({ children, requiredRole = 'view' }: AuthWrapperProp
     );
   }
 
-  // If on login page, just render children
-  if (pathname === '/login') {
+  // Public pages — render without auth
+  if (['/login', '/welcome'].includes(pathname)) {
     return <>{children}</>;
+  }
+
+  // Not authenticated and not on a public page — blank while redirect fires
+  if (!user) {
+    return (
+      <div className="min-h-screen bg-zinc-950 flex items-center justify-center">
+        <LobsterLogo className="w-16 h-16 animate-pulse" />
+      </div>
+    );
   }
 
   // Check if user has required role

@@ -3,7 +3,7 @@ import { execSync } from 'child_process';
 import packageJson from '../../../../package.json';
 import { getCurrentUser } from '@/lib/auth';
 
-const GITHUB_RELEASES_DASHBOARD = 'https://api.github.com/repos/skunkceo/superclaw-dashboard/releases/latest';
+const GITHUB_RELEASES_DASHBOARD = 'https://api.github.com/repos/skunkceo/superclaw-dashboard-dist/releases/latest';
 const GITHUB_RELEASES_OPENCLAW = 'https://api.github.com/repos/openclaw/openclaw/releases/latest';
 const NPM_REGISTRY_OPENCLAW = 'https://registry.npmjs.org/openclaw';
 
@@ -27,7 +27,7 @@ export async function GET() {
   try {
     const res = await fetch(GITHUB_RELEASES_DASHBOARD, {
       headers: GITHUB_HEADERS,
-      next: { revalidate: 3600 }
+      next: { revalidate: 300 }
     });
     if (res.ok) {
       const data = await res.json();
@@ -106,7 +106,7 @@ export async function GET() {
       updateAvailable: dashboardUpdateAvailable,
       updateCommand: 'superclaw update',
       changelog: dashboardUpdateAvailable 
-        ? `https://github.com/skunkceo/superclaw-dashboard/releases/tag/v${dashboardLatest}` 
+        ? `https://github.com/skunkceo/superclaw-dashboard-dist/releases/tag/v${dashboardLatest}` 
         : null,
       releaseNotes: dashboardReleaseNotes,
     },
