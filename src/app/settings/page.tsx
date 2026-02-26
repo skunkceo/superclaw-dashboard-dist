@@ -14,6 +14,66 @@ export default function SettingsPage() {
   const [passwordMsg, setPasswordMsg] = useState<{ success: boolean; message: string } | null>(null);
   const [changingPassword, setChangingPassword] = useState(false);
 
+  // Google Analytics connection
+  const [analyticsJson, setAnalyticsJson] = useState('');
+  const [propertyId, setPropertyId] = useState('');
+  const [analyticsMsg, setAnalyticsMsg] = useState<{ success: boolean; message: string } | null>(null);
+  const [savingAnalytics, setSavingAnalytics] = useState(false);
+  const [analyticsStatus, setAnalyticsStatus] = useState<'unknown' | 'connected' | 'not_connected'>('unknown');
+
+  useEffect(() => {
+    fetch('/api/settings/analytics')
+      .then(r => r.ok ? r.json() : null)
+      .then(d => {
+        if (d?.configured) {
+          setAnalyticsStatus('connected');
+          if (d.propertyId) setPropertyId(d.propertyId);
+        } else {
+          setAnalyticsStatus('not_connected');
+        }
+      })
+      .catch(() => setAnalyticsStatus('not_connected'));
+  }, []);
+
+  const handleAnalyticsSave = async () => {
+    setAnalyticsMsg(null);
+    setSavingAnalytics(true);
+    try {
+      let parsed: Record<string, string> | null = null;
+      if (analyticsJson.trim()) {
+        try {
+          parsed = JSON.parse(analyticsJson.trim());
+        } catch {
+          setAnalyticsMsg({ success: false, message: 'Invalid JSON — paste the full service account key file' });
+          setSavingAnalytics(false);
+          return;
+        }
+        if (!parsed?.client_email || !parsed?.private_key) {
+          setAnalyticsMsg({ success: false, message: 'JSON must contain client_email and private_key fields' });
+          setSavingAnalytics(false);
+          return;
+        }
+      }
+      const res = await fetch('/api/settings/analytics', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ serviceAccountJson: parsed, propertyId: propertyId.trim() }),
+      });
+      const d = await res.json();
+      if (res.ok && d.success) {
+        setAnalyticsMsg({ success: true, message: 'Credentials saved. Restart the server for changes to take effect.' });
+        setAnalyticsStatus('connected');
+        setAnalyticsJson('');
+      } else {
+        setAnalyticsMsg({ success: false, message: d.error || 'Failed to save credentials' });
+      }
+    } catch {
+      setAnalyticsMsg({ success: false, message: 'Request failed' });
+    } finally {
+      setSavingAnalytics(false);
+    }
+  };
+
   // Proactivity settings
   const [proSettings, setProSettings] = useState({
     overnight_start_time: '00:00',
@@ -392,6 +452,71 @@ export default function SettingsPage() {
                 {passwordMsg && (
                   <span className={`text-xs ${passwordMsg.success ? 'text-green-400' : 'text-red-400'}`}>
                     {passwordMsg.message}
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Google Analytics */}
+          <div id="analytics" className="bg-zinc-900 rounded-xl border border-zinc-800 overflow-hidden">
+            <div className="px-6 py-4 border-b border-zinc-800">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-lg font-semibold text-white">Google Analytics</h2>
+                  <p className="text-sm text-zinc-500 mt-0.5">Connect GA4 + Search Console for the Traffic page</p>
+                </div>
+                {analyticsStatus === 'connected' && (
+                  <span className="flex items-center gap-1.5 text-xs text-green-400 bg-green-400/10 border border-green-400/20 px-2.5 py-1 rounded-full">
+                    <span className="w-1.5 h-1.5 rounded-full bg-green-400 inline-block" />
+                    Connected
+                  </span>
+                )}
+                {analyticsStatus === 'not_connected' && (
+                  <span className="flex items-center gap-1.5 text-xs text-zinc-500 bg-zinc-800 border border-zinc-700 px-2.5 py-1 rounded-full">
+                    <span className="w-1.5 h-1.5 rounded-full bg-zinc-500 inline-block" />
+                    Not connected
+                  </span>
+                )}
+              </div>
+            </div>
+            <div className="p-6 space-y-5">
+              <div>
+                <label className="block text-sm font-medium text-zinc-300 mb-1.5">GA4 Property ID</label>
+                <input
+                  type="text"
+                  value={propertyId}
+                  onChange={e => setPropertyId(e.target.value)}
+                  className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-white text-sm focus:ring-1 focus:ring-orange-500 focus:outline-none font-mono"
+                  placeholder="e.g. 513552077"
+                />
+                <p className="text-xs text-zinc-600 mt-1">Find this in Google Analytics → Admin → Property Settings</p>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-zinc-300 mb-1.5">Service Account Key (JSON)</label>
+                <textarea
+                  value={analyticsJson}
+                  onChange={e => setAnalyticsJson(e.target.value)}
+                  rows={6}
+                  className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-white text-xs focus:ring-1 focus:ring-orange-500 focus:outline-none font-mono resize-none"
+                  placeholder={'Paste the full contents of your service account JSON key file here\n{\n  "type": "service_account",\n  "client_email": "...",\n  "private_key": "..."\n}'}
+                />
+                <p className="text-xs text-zinc-600 mt-1">
+                  Create a service account in Google Cloud Console, grant it Viewer access to GA4 and Search Console, then download the JSON key.
+                  {' '}<a href="https://docs.openclaw.ai" target="_blank" rel="noopener noreferrer" className="text-orange-400 hover:text-orange-300">Setup guide</a>
+                </p>
+              </div>
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={handleAnalyticsSave}
+                  disabled={savingAnalytics || (!analyticsJson.trim() && !propertyId.trim())}
+                  className="px-4 py-2 bg-orange-500 hover:bg-orange-400 text-black font-semibold text-sm rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {savingAnalytics ? 'Saving...' : 'Save Credentials'}
+                </button>
+                {analyticsMsg && (
+                  <span className={`text-xs ${analyticsMsg.success ? 'text-green-400' : 'text-red-400'}`}>
+                    {analyticsMsg.message}
                   </span>
                 )}
               </div>

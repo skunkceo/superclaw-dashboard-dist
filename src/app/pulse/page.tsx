@@ -294,18 +294,26 @@ export default function PulsePage() {
   const [data, setData] = useState<PulseData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [notConfigured, setNotConfigured] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
   const fetchData = async () => {
     try {
       const res = await fetch('/api/pulse');
+      const json = await res.json();
+      if (json.configured === false) {
+        setNotConfigured(true);
+        setError(null);
+        setLoading(false);
+        return;
+      }
       if (!res.ok) {
         throw new Error('Failed to fetch data');
       }
-      const json = await res.json();
       setData(json);
       setLastUpdated(new Date());
       setError(null);
+      setNotConfigured(false);
     } catch (err) {
       setError('Failed to load traffic data');
     } finally {
@@ -356,12 +364,45 @@ export default function PulsePage() {
     });
   })() : [];
 
+  if (notConfigured) {
+    return (
+      <div className="min-h-screen bg-zinc-900 p-6">
+        <div className="max-w-7xl mx-auto">
+          <div className="mb-6">
+            <h1 className="text-2xl font-bold text-white">Traffic</h1>
+            <p className="text-zinc-500 text-sm mt-1">GA4 + Search Console</p>
+          </div>
+          <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-10 text-center max-w-lg mx-auto mt-16">
+            <div className="w-12 h-12 rounded-full bg-zinc-800 border border-zinc-700 flex items-center justify-center mx-auto mb-4">
+              <svg className="w-6 h-6 text-zinc-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+              </svg>
+            </div>
+            <h2 className="text-white font-semibold text-lg mb-2">Google Analytics not connected</h2>
+            <p className="text-zinc-400 text-sm mb-6 leading-relaxed">
+              Connect a Google service account to see traffic data from GA4 and Search Console across your sites.
+            </p>
+            <a
+              href="/settings#analytics"
+              className="inline-flex items-center gap-2 px-5 py-2.5 bg-orange-500 hover:bg-orange-400 text-black font-semibold text-sm rounded-lg transition-colors"
+            >
+              Connect Google Analytics
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+              </svg>
+            </a>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (error) {
     return (
       <div className="min-h-screen bg-zinc-900 p-6">
         <div className="max-w-7xl mx-auto">
           <div className="bg-zinc-800 border border-zinc-700 rounded-xl p-8 text-center">
-            <div className="text-red-400 text-lg mb-2">Failed to load traffic data</div>
+            <div className="text-red-400 text-sm mb-3">Failed to load traffic data</div>
             <button
               onClick={() => { setLoading(true); setError(null); fetchData(); }}
               className="text-orange-400 hover:text-orange-300 text-sm"

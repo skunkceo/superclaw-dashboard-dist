@@ -359,8 +359,8 @@ export async function GET() {
 
     if (!clientEmail || !privateKey) {
       return NextResponse.json(
-        { error: 'GA4 credentials not configured' },
-        { status: 500 }
+        { configured: false, error: 'GA4 credentials not configured' },
+        { status: 200 }
       );
     }
 
