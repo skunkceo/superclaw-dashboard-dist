@@ -75,6 +75,9 @@ export async function POST(request: Request) {
         pr_url: null,
         pr_number: null,
         notes: null,
+        source: 'linear',
+        intel_id: null,
+        category: 'uncategorised' as const,
       };
 
       createWorkProposal(proposal);

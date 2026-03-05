@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 
@@ -33,7 +33,7 @@ const CALLOUT_STYLES: Record<string, { border: string; bg: string; label: string
   OPPORTUNITY:{ border: '#22c55e', bg: 'rgba(34,197,94,0.08)',   label: 'Opportunity', labelColor: '#4ade80', icon: '▲' },
   WARNING:    { border: '#eab308', bg: 'rgba(234,179,8,0.08)',   label: 'Watch',       labelColor: '#facc15', icon: '⚠' },
   ACTION:     { border: '#a855f7', bg: 'rgba(168,85,247,0.08)',  label: 'Action',      labelColor: '#c084fc', icon: '→' },
-  NOTE:       { border: '#71717a', bg: 'rgba(113,113,122,0.08)', label: 'Note',        labelColor: '#a1a1aa', icon: 'ℹ' },
+  NOTE:       { border: '#71717a', bg: 'rgba(113,113,122,0.08)', label: 'Note',        labelColor: '#a1a1aa', icon: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;margin-bottom:1px"><circle cx="12" cy="12" r="9"/><path d="M12 8v4m0 4h.01"/></svg>' },
   STAT:       { border: '#06b6d4', bg: 'rgba(6,182,212,0.08)',   label: 'Stat',        labelColor: '#22d3ee', icon: '#' },
 };
 
@@ -123,12 +123,36 @@ function renderMarkdown(md: string): string {
   // ── Inline code ────────────────────────────────────────────────────────────
   src = src.replace(/`([^`]+)`/g, '<code style="background:#27272a;color:#fb923c;padding:0.15rem 0.4rem;border-radius:0.25rem;font-size:0.8em;">$1</code>');
 
+  // ── Special: Reddit thread URL lines (before bold strips **) ─────────────
+  src = src.replace(/^\*\*URL:\*\* (https?:\/\/[^\s]+)$/gm, (_, url) => {
+    const isReddit = url.includes('reddit.com');
+    return `<div style="margin:0.4rem 0 1rem;display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap;"${isReddit ? ` data-reddit-url="${url}"` : ''}><a href="${url}" target="_blank" rel="noopener noreferrer" style="display:inline-flex;align-items:center;gap:0.5rem;background:rgba(255,99,32,0.12);border:1px solid rgba(255,99,32,0.3);color:#ff6314;border-radius:0.4rem;padding:0.35rem 0.8rem;font-size:0.8rem;font-weight:600;text-decoration:none;"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>View thread</a></div>`;
+  });
+
   // ── Bold & italic ─────────────────────────────────────────────────────────
   src = src.replace(/\*\*([^*\n]+)\*\*/g, '<strong style="color:#fff;font-weight:600;">$1</strong>');
   src = src.replace(/\*([^*\n]+)\*/g, '<em style="color:#d4d4d8;">$1</em>');
 
   // ── Links ─────────────────────────────────────────────────────────────────
   src = src.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer" style="color:#fb923c;text-decoration:underline;">$1</a>');
+
+  // ── Bare URLs on their own line (not already inside an anchor/tag) ────────
+  // Runs after [text](url) conversion so markdown links are already <a> tags.
+  src = src.replace(/^(https?:\/\/[^\s<>"]+)$/gm, (_, url) => {
+    const isReddit = url.includes('reddit.com');
+    if (isReddit) {
+      return `<div style="margin:0.4rem 0 1rem;display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap;" data-reddit-url="${url}"><a href="${url}" target="_blank" rel="noopener noreferrer" style="display:inline-flex;align-items:center;gap:0.5rem;background:rgba(255,99,32,0.12);border:1px solid rgba(255,99,32,0.3);color:#ff6314;border-radius:0.4rem;padding:0.35rem 0.8rem;font-size:0.8rem;font-weight:600;text-decoration:none;"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>View thread</a></div>`;
+    }
+    return `<a href="${url}" target="_blank" rel="noopener noreferrer" style="color:#fb923c;text-decoration:underline;word-break:break-all;">${url}</a>`;
+  });
+
+  // ── Reddit subreddit badges ────────────────────────────────────────────────
+  // Use a combined regex: match either an HTML tag (preserve it) or a bare r/subreddit
+  // (convert it). This avoids ever touching text inside HTML attribute values.
+  src = src.replace(/(<[^>]+>)|\br\/([a-zA-Z0-9_]+)\b/g, (match, tag, sub) => {
+    if (tag) return tag; // preserve HTML tags verbatim
+    return `<a href="https://reddit.com/r/${sub}" target="_blank" rel="noopener noreferrer" style="display:inline-flex;align-items:center;gap:0.25rem;background:rgba(255,99,32,0.12);border:1px solid rgba(255,99,32,0.3);color:#ff6314;border-radius:9999px;padding:0.12rem 0.6rem;font-size:0.78rem;font-weight:700;text-decoration:none;vertical-align:middle;letter-spacing:0.01em;">r/${sub}</a>`;
+  });
 
   // ── Paragraphs — split by blank lines, wrap plain text blocks ─────────────
   const blocks = src.split(/\n{2,}/);
@@ -194,6 +218,14 @@ export default function ReportDetailPage() {
   const [notFound, setNotFound] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const contentRef = useRef<HTMLDivElement>(null);
+
+  // Reset scroll position on mount (unless navigating to anchor/fragment)
+  useEffect(() => {
+    if (!window.location.hash) {
+      window.scrollTo(0, 0);
+    }
+  }, []);
 
   useEffect(() => {
     if (!id) return;
@@ -229,6 +261,113 @@ export default function ReportDetailPage() {
         if (span) span.style.textDecoration = box.checked ? 'line-through' : '';
         if (span) span.style.color = box.checked ? '#71717a' : '#d4d4d8';
       });
+    });
+  }, [report]);
+
+  // Inject "Mark as commented" buttons next to Reddit thread links.
+  // Persists state in localStorage so done threads stay visually marked on reload.
+  useEffect(() => {
+    if (!report || !contentRef.current) return;
+    const container = contentRef.current;
+    const storageKey = `report-reddit-commented-${report.id}`;
+    const saved: Record<string, boolean> = JSON.parse(localStorage.getItem(storageKey) || '{}');
+
+    function markDone(div: HTMLElement, url: string) {
+      // Style the container as a distinct "done" block
+      div.style.cssText += ';background:rgba(74,222,128,0.06);border-left:3px solid #4ade80;border-radius:0 0.4rem 0.4rem 0;padding:0.5rem 0.75rem;transition:all 0.3s;';
+
+      // Grey out the "View thread" link — strip the orange, go muted
+      const link = div.querySelector('a');
+      if (link) {
+        link.style.background = 'rgba(113,113,122,0.12)';
+        link.style.borderColor = 'rgba(113,113,122,0.25)';
+        link.style.color = '#52525b';
+        link.style.textDecoration = 'line-through';
+        link.style.textDecorationColor = '#3f3f46';
+      }
+
+      // Remove the "Mark as commented" button
+      const existing = div.querySelector('[data-mark-commented]');
+      if (existing) existing.remove();
+
+      // Insert a solid green "Commented" badge BEFORE the link
+      const badge = document.createElement('span');
+      badge.style.cssText = [
+        'display:inline-flex',
+        'align-items:center',
+        'gap:0.4rem',
+        'background:#166534',
+        'border:1px solid #16a34a',
+        'color:#4ade80',
+        'border-radius:0.4rem',
+        'padding:0.3rem 0.8rem',
+        'font-size:0.78rem',
+        'font-weight:700',
+        'flex-shrink:0',
+        'letter-spacing:0.02em',
+      ].join(';');
+      badge.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg> Commented`;
+      div.insertBefore(badge, div.firstChild);
+
+      // Persist
+      const state: Record<string, boolean> = JSON.parse(localStorage.getItem(storageKey) || '{}');
+      state[url] = true;
+      localStorage.setItem(storageKey, JSON.stringify(state));
+    }
+
+    const redditDivs = container.querySelectorAll<HTMLElement>('[data-reddit-url]');
+    redditDivs.forEach(div => {
+      const url = div.getAttribute('data-reddit-url')!;
+
+      // Restore done state from localStorage
+      if (saved[url]) {
+        markDone(div, url);
+        return;
+      }
+
+      if (div.querySelector('[data-mark-commented]')) return; // already injected
+
+      const btn = document.createElement('button');
+      btn.setAttribute('data-mark-commented', 'true');
+      btn.textContent = 'Mark as commented';
+      btn.style.cssText = [
+        'display:inline-flex',
+        'align-items:center',
+        'gap:0.3rem',
+        'background:rgba(74,222,128,0.06)',
+        'border:1px solid rgba(74,222,128,0.2)',
+        'color:#86efac',
+        'border-radius:0.4rem',
+        'padding:0.3rem 0.7rem',
+        'font-size:0.75rem',
+        'font-weight:600',
+        'cursor:pointer',
+        'transition:background 0.15s,border-color 0.15s',
+      ].join(';');
+
+      btn.onmouseenter = () => {
+        btn.style.background = 'rgba(74,222,128,0.12)';
+        btn.style.borderColor = 'rgba(74,222,128,0.35)';
+      };
+      btn.onmouseleave = () => {
+        btn.style.background = 'rgba(74,222,128,0.06)';
+        btn.style.borderColor = 'rgba(74,222,128,0.2)';
+      };
+
+      btn.onclick = async () => {
+        btn.style.pointerEvents = 'none';
+        btn.style.opacity = '0.5';
+        try {
+          await fetch('/api/intel/mark-by-url', {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url }),
+          });
+        } catch (_) { /* best effort */ }
+        markDone(div, url);
+      };
+
+      div.appendChild(btn);
     });
   }, [report]);
 
@@ -295,6 +434,7 @@ export default function ReportDetailPage() {
 
         {/* Content — strip leading h1 since title is already shown in the header */}
         <div
+          ref={contentRef}
           className="prose prose-invert max-w-none"
           dangerouslySetInnerHTML={{ __html: renderMarkdown(report.content.replace(/^#[^\n]*\n+/, '')) }}
         />

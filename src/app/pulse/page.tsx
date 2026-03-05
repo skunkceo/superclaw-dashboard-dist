@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 
 interface PulseData {
   timestamp: string;
@@ -44,6 +44,15 @@ function formatNumber(num: number): string {
   return num.toLocaleString();
 }
 
+function formatDate(dateStr: string): string {
+  // GA4 returns dates as YYYYMMDD, GSC returns YYYY-MM-DD — normalise to ISO before parsing
+  const normalized = dateStr.length === 8
+    ? `${dateStr.slice(0, 4)}-${dateStr.slice(4, 6)}-${dateStr.slice(6, 8)}`
+    : dateStr;
+  const d = new Date(normalized + 'T00:00:00');
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+
 function calculateTrend(current: number, previous: number): { value: number; direction: 'up' | 'down' | 'neutral' } {
   if (previous === 0) return { value: 0, direction: 'neutral' };
   const change = ((current - previous) / previous) * 100;
@@ -69,8 +78,20 @@ function TrendBadge({ current, previous }: { current: number; previous: number }
   );
 }
 
-function seoChart(impressions: number[], clicks: number[]): string {
-  if (impressions.length === 0) return '';
+interface SeoTooltip {
+  index: number;
+  x: number;
+  y: number;
+}
+
+function SeoChart({ daily }: { daily: Array<{ date: string; impressions: number; clicks: number }> }) {
+  const [tooltip, setTooltip] = useState<SeoTooltip | null>(null);
+  const svgRef = useRef<SVGSVGElement>(null);
+
+  if (daily.length === 0) return null;
+
+  const impressions = daily.map(d => d.impressions);
+  const clicks = daily.map(d => d.clicks);
 
   const width = 200;
   const height = 80;
@@ -80,43 +101,137 @@ function seoChart(impressions: number[], clicks: number[]): string {
 
   const maxImpressions = Math.max(...impressions, 1);
   const maxClicks = Math.max(...clicks, 1);
+  const colWidth = chartWidth / daily.length;
+  const barWidth = colWidth - 2;
 
-  const barWidth = chartWidth / impressions.length - 2;
-
-  // Impressions bars
-  const bars = impressions.map((imp, i) => {
-    const barHeight = (imp / maxImpressions) * (chartHeight * 0.8);
-    const x = padding + i * (chartWidth / impressions.length) + 1;
-    const y = height - padding - barHeight;
-    return `<rect x="${x}" y="${y}" width="${barWidth}" height="${barHeight}" fill="rgba(156,163,175,0.5)" rx="1"/>`;
-  }).join('');
-
-  // Clicks line (bezier curve)
-  if (clicks.length < 2) return `<svg viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg">${bars}</svg>`;
-
-  const points = clicks.map((c, i) => {
-    const x = padding + i * (chartWidth / (clicks.length - 1));
-    const y = height - padding - (c / maxClicks) * (chartHeight * 0.8);
-    return { x, y };
-  });
-
-  let path = `M ${points[0].x} ${points[0].y}`;
-  for (let i = 0; i < points.length - 1; i++) {
-    const cp1x = points[i].x + (points[i + 1].x - points[i].x) / 3;
-    const cp1y = points[i].y;
-    const cp2x = points[i].x + 2 * (points[i + 1].x - points[i].x) / 3;
-    const cp2y = points[i + 1].y;
-    path += ` C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${points[i + 1].x} ${points[i + 1].y}`;
+  // Build clicks bezier path
+  let clicksPath = '';
+  if (clicks.length >= 2) {
+    const points = clicks.map((c, i) => ({
+      x: padding + i * (chartWidth / (clicks.length - 1)),
+      y: height - padding - (c / maxClicks) * (chartHeight * 0.8),
+    }));
+    clicksPath = `M ${points[0].x} ${points[0].y}`;
+    for (let i = 0; i < points.length - 1; i++) {
+      const cp1x = points[i].x + (points[i + 1].x - points[i].x) / 3;
+      const cp1y = points[i].y;
+      const cp2x = points[i].x + 2 * (points[i + 1].x - points[i].x) / 3;
+      const cp2y = points[i + 1].y;
+      clicksPath += ` C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${points[i + 1].x} ${points[i + 1].y}`;
+    }
   }
 
-  return `<svg viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg">
-    ${bars}
-    <path d="${path}" fill="none" stroke="#F97316" stroke-width="2" stroke-linecap="round"/>
-  </svg>`;
+  const handleMouseMove = (e: React.MouseEvent<SVGSVGElement>) => {
+    if (!svgRef.current) return;
+    const rect = svgRef.current.getBoundingClientRect();
+    const relX = ((e.clientX - rect.left) / rect.width) * width;
+    const col = Math.floor((relX - padding) / colWidth);
+    const idx = Math.max(0, Math.min(daily.length - 1, col));
+    const tooltipX = (e.clientX - rect.left) / rect.width;
+    setTooltip({ index: idx, x: tooltipX, y: 0 });
+  };
+
+  const entry = tooltip !== null ? daily[tooltip.index] : null;
+
+  return (
+    <div className="relative">
+      <svg
+        ref={svgRef}
+        viewBox={`0 0 ${width} ${height}`}
+        className="w-full cursor-crosshair"
+        onMouseMove={handleMouseMove}
+        onMouseLeave={() => setTooltip(null)}
+      >
+        {/* Impression bars */}
+        {impressions.map((imp, i) => {
+          const barHeight = (imp / maxImpressions) * (chartHeight * 0.8);
+          const x = padding + i * colWidth + 1;
+          const y = height - padding - barHeight;
+          const isHovered = tooltip?.index === i;
+          return (
+            <rect
+              key={i}
+              x={x}
+              y={y}
+              width={barWidth}
+              height={barHeight}
+              fill={isHovered ? 'rgba(156,163,175,0.85)' : 'rgba(156,163,175,0.5)'}
+              rx="1"
+            />
+          );
+        })}
+
+        {/* Clicks bezier line */}
+        {clicksPath && (
+          <path
+            d={clicksPath}
+            fill="none"
+            stroke="#F97316"
+            strokeWidth="2"
+            strokeLinecap="round"
+          />
+        )}
+
+        {/* Hovered bar highlight line */}
+        {tooltip !== null && (
+          <line
+            x1={padding + tooltip.index * colWidth + colWidth / 2}
+            y1={padding}
+            x2={padding + tooltip.index * colWidth + colWidth / 2}
+            y2={height - padding}
+            stroke="rgba(255,255,255,0.15)"
+            strokeWidth="1"
+            strokeDasharray="2,2"
+          />
+        )}
+      </svg>
+
+      {/* Tooltip */}
+      {entry && tooltip !== null && (
+        <div
+          className="absolute bottom-full mb-1 pointer-events-none z-10"
+          style={{
+            left: `${Math.min(Math.max(tooltip.x * 100, 10), 75)}%`,
+            transform: 'translateX(-50%)',
+          }}
+        >
+          <div className="bg-zinc-700 border border-zinc-600 rounded-md px-2.5 py-1.5 text-xs whitespace-nowrap shadow-lg">
+            <div className="text-zinc-300 font-medium mb-1">{formatDate(entry.date)}</div>
+            <div className="flex items-center gap-1.5">
+              <span className="text-zinc-400">Impressions:</span>
+              <span className="text-white font-semibold">{entry.impressions.toLocaleString()}</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="text-orange-400">●</span>
+              <span className="text-zinc-400">Clicks:</span>
+              <span className="text-white font-semibold">{entry.clicks.toLocaleString()}</span>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
-function sessionsChart(sessions: number[], organicSessions: number[]): string {
-  if (sessions.length === 0) return '';
+interface SessionsTooltip {
+  index: number;
+  x: number;
+}
+
+function SessionsChart({
+  daily,
+  organicDaily,
+}: {
+  daily: Array<{ date: string; sessions: number }>;
+  organicDaily: Array<{ date: string; sessions: number }>;
+}) {
+  const [tooltip, setTooltip] = useState<SessionsTooltip | null>(null);
+  const svgRef = useRef<SVGSVGElement>(null);
+
+  if (daily.length === 0) return null;
+
+  const sessions = daily.map(d => d.sessions);
+  const organicSessions = organicDaily.map(d => d.sessions);
 
   const width = 200;
   const height = 80;
@@ -124,29 +239,114 @@ function sessionsChart(sessions: number[], organicSessions: number[]): string {
   const chartWidth = width - padding * 2;
   const chartHeight = height - padding * 2;
 
-  const maxSessions = Math.max(...sessions, 1);
-  const barWidth = chartWidth / sessions.length - 2;
+  const maxSessions = Math.max(...sessions, ...organicSessions, 1);
+  const colWidth = chartWidth / sessions.length;
+  const barWidth = Math.max(1, colWidth - 2);
 
-  const bars = sessions.map((total, i) => {
-    const organic = organicSessions[i] || 0;
-    const other = Math.max(0, total - organic);
+  const handleMouseMove = (e: React.MouseEvent<SVGSVGElement>) => {
+    if (!svgRef.current) return;
+    const rect = svgRef.current.getBoundingClientRect();
+    const relX = ((e.clientX - rect.left) / rect.width) * width;
+    const col = Math.floor((relX - padding) / colWidth);
+    const idx = Math.max(0, Math.min(daily.length - 1, col));
+    const tooltipX = (e.clientX - rect.left) / rect.width;
+    setTooltip({ index: idx, x: tooltipX });
+  };
 
-    const totalHeight = (total / maxSessions) * chartHeight;
-    const organicHeight = (organic / maxSessions) * chartHeight;
-    const otherHeight = totalHeight - organicHeight;
+  const hoveredEntry = tooltip !== null ? {
+    date: daily[tooltip.index]?.date,
+    total: sessions[tooltip.index] ?? 0,
+    organic: Math.min(organicSessions[tooltip.index] ?? 0, sessions[tooltip.index] ?? 0),
+  } : null;
 
-    const x = padding + i * (chartWidth / sessions.length) + 1;
-    const yBase = height - padding;
+  return (
+    <div className="relative">
+      <svg
+        ref={svgRef}
+        viewBox={`0 0 ${width} ${height}`}
+        className="w-full cursor-crosshair"
+        onMouseMove={handleMouseMove}
+        onMouseLeave={() => setTooltip(null)}
+      >
+        {sessions.map((total, i) => {
+          const organic = Math.min(organicSessions[i] || 0, total);
+          const other = Math.max(0, total - organic);
 
-    // Other traffic (orange) at bottom
-    const otherBar = `<rect x="${x}" y="${yBase - otherHeight}" width="${barWidth}" height="${otherHeight}" fill="#F97316" rx="1"/>`;
-    // Organic (zinc-300) on top
-    const organicBar = `<rect x="${x}" y="${yBase - totalHeight}" width="${barWidth}" height="${organicHeight}" fill="#d4d4d8" rx="1"/>`;
+          const totalHeight = Math.min((total / maxSessions) * chartHeight, chartHeight);
+          const organicHeight = Math.min((organic / maxSessions) * chartHeight, totalHeight);
+          const otherHeight = totalHeight - organicHeight;
 
-    return otherBar + organicBar;
-  }).join('');
+          const x = padding + i * colWidth + 1;
+          const yBase = height - padding;
+          const isHovered = tooltip?.index === i;
+          const otherFill = isHovered ? '#6b7280' : '#52525b';
+          const organicFill = isHovered ? '#fb923c' : '#f97316';
 
-  return `<svg viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg">${bars}</svg>`;
+          return (
+            <g key={i}>
+              {otherHeight > 0 && (
+                <rect
+                  x={x}
+                  y={yBase - otherHeight}
+                  width={barWidth}
+                  height={otherHeight}
+                  fill={otherFill}
+                  rx="1"
+                />
+              )}
+              {organicHeight > 0 && (
+                <rect
+                  x={x}
+                  y={yBase - totalHeight}
+                  width={barWidth}
+                  height={organicHeight}
+                  fill={organicFill}
+                  rx="1"
+                />
+              )}
+            </g>
+          );
+        })}
+
+        {/* Hovered bar guide line */}
+        {tooltip !== null && (
+          <line
+            x1={padding + tooltip.index * colWidth + colWidth / 2}
+            y1={padding}
+            x2={padding + tooltip.index * colWidth + colWidth / 2}
+            y2={height - padding}
+            stroke="rgba(255,255,255,0.15)"
+            strokeWidth="1"
+            strokeDasharray="2,2"
+          />
+        )}
+      </svg>
+
+      {/* Tooltip */}
+      {hoveredEntry && tooltip !== null && (
+        <div
+          className="absolute bottom-full mb-1 pointer-events-none z-10"
+          style={{
+            left: `${Math.min(Math.max(tooltip.x * 100, 10), 75)}%`,
+            transform: 'translateX(-50%)',
+          }}
+        >
+          <div className="bg-zinc-700 border border-zinc-600 rounded-md px-2.5 py-1.5 text-xs whitespace-nowrap shadow-lg">
+            <div className="text-zinc-300 font-medium mb-1">{formatDate(hoveredEntry.date)}</div>
+            <div className="flex items-center gap-1.5">
+              <span className="text-zinc-400">Total:</span>
+              <span className="text-white font-semibold">{hoveredEntry.total.toLocaleString()}</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="text-orange-400">●</span>
+              <span className="text-zinc-400">Organic:</span>
+              <span className="text-white font-semibold">{hoveredEntry.organic.toLocaleString()}</span>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
 function MetricCard({ label, value, current, previous }: { label: string; value: string; current: number; previous: number }) {
@@ -180,11 +380,6 @@ function SiteCard({
   };
 }) {
   const displayName = formatSiteName(siteName);
-
-  const sessions = ga4Data?.daily.map(d => d.sessions) || [];
-  const organicSessions = ga4Data?.organicDaily.map(d => d.sessions) || [];
-  const impressions = gscData?.daily.map(d => d.impressions) || [];
-  const clicks = gscData?.daily.map(d => d.clicks) || [];
 
   const gscUrl = `https://search.google.com/search-console/performance/search-analytics?resource_id=sc-domain:${siteName}`;
 
@@ -244,17 +439,21 @@ function SiteCard({
 
       {/* Sparklines */}
       <div className="space-y-3">
-        {gscData && impressions.length > 0 && (
+        {gscData && gscData.daily.length > 0 && (
           <div className="bg-zinc-900 rounded-lg p-2">
             <div className="text-zinc-500 text-xs mb-1">GSC: Impressions (bars) / Clicks (line)</div>
-            <div dangerouslySetInnerHTML={{ __html: seoChart(impressions, clicks) }} />
+            <SeoChart daily={gscData.daily} />
           </div>
         )}
 
-        {ga4Data && sessions.length > 0 && (
+        {ga4Data && ga4Data.daily.length > 0 && (
           <div className="bg-zinc-900 rounded-lg p-2">
-            <div className="text-zinc-500 text-xs mb-1">Sessions: Organic (light) / Other (orange)</div>
-            <div dangerouslySetInnerHTML={{ __html: sessionsChart(sessions, organicSessions) }} />
+            <div className="text-zinc-500 text-xs mb-1 flex items-center gap-3">
+              <span>Sessions</span>
+              <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-sm bg-orange-500" />Organic</span>
+              <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-sm bg-zinc-600" />Other</span>
+            </div>
+            <SessionsChart daily={ga4Data.daily} organicDaily={ga4Data.organicDaily} />
           </div>
         )}
       </div>

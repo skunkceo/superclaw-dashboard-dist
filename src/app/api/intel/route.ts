@@ -43,6 +43,7 @@ export async function POST(request: Request) {
       url: url || null,
       source: source || 'manual',
       relevance_score: relevance_score || 50,
+      insight: null,
     };
 
     createIntelItem(item);

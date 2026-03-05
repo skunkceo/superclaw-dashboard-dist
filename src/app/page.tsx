@@ -5,7 +5,8 @@ import { TokenUsage } from '@/components/TokenUsage';
 import { LobsterLogo } from '@/components/LobsterLogo';
 import { ProactivityBanner } from '@/components/ProactivityBanner';
 import { AgentActivityFeed } from '@/components/AgentActivityFeed';
-import { ActiveAgentsPanel } from '@/components/ActiveAgentsPanel';
+import { AgentCommandCenter } from '@/components/AgentCommandCenter';
+import GitHubCommitHeatmap from '@/components/GitHubCommitHeatmap';
 import { SetupBanner } from '@/components/SetupBanner';
 import Link from 'next/link';
 import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors, DragOverlay, DragStartEvent, DragEndEvent } from '@dnd-kit/core';
@@ -27,21 +28,13 @@ interface DashboardData {
 
 interface AgentData {
   workspaces: Array<{ label:string; name:string; emoji:string; workspacePath:string; hasMemory:boolean; memorySize:number; }>;
-  sessions: Array<{ label:string; sessionKey:string; status:'active'|'idle'|'waiting'; lastActive:string; messageCount:number; model:string; }>;
+  sessions: Array<{ label:string; sessionKey:string; status:'active'|'idle'|'waiting'; lastActive:string; messageCount:number; model:string; task?:string; branch?:string; repo?:string; linearId?:string; }>;
 }
+
 
 interface ActivityEntry { id:string; timestamp:number; agent_label:string; action_type:string; summary:string; details?:string; links?:string; }
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
-
-function labelToPortrait(label: string): string {
-  let h = 0;
-  for (let i = 0; i < label.length; i++) h = Math.imul(31, h) + label.charCodeAt(i) | 0;
-  const abs = Math.abs(h);
-  const gender = abs % 2 === 0 ? 'men' : 'women';
-  const idx = abs % 70;
-  return `https://randomuser.me/api/portraits/thumb/${gender}/${idx}.jpg`;
-}
 
 function timeAgo(ts: number | string): string {
   const stamp = typeof ts === 'string' ? new Date(ts).getTime() : ts;
@@ -57,41 +50,16 @@ function timeAgo(ts: number | string): string {
 }
 
 const ACTION_ICONS: Record<string,string> = { started:'▶',completed:'✓',commit:'⊕',pr_opened:'⤴',deploy:'↑',error:'✕',blocked:'⊘',research:'◎',analysis:'◈',report:'▤',content:'✎',writing:'✎',monitoring:'◷',intel:'◉',site_check:'◉',info:'◦' };
-const ACTION_COLORS: Record<string,string> = { completed:'text-green-400',commit:'text-blue-400',pr_opened:'text-purple-400',deploy:'text-orange-400',error:'text-red-400',blocked:'text-red-400',started:'text-orange-300',research:'text-zinc-400',analysis:'text-zinc-400' };
+const ACTION_COLORS: Record<string,string> = { completed:'text-orange-400',commit:'text-blue-400',pr_opened:'text-purple-400',deploy:'text-orange-400',error:'text-red-400',blocked:'text-red-400',started:'text-orange-300',research:'text-zinc-400',analysis:'text-zinc-400' };
 
 // ─── Existing Widgets ──────────────────────────────────────────────────────
-
-function AgentAvatarRow({ agentData }: { agentData: AgentData | null }) {
-  const agents = agentData?.workspaces.map(w => { const s = agentData.sessions.find(s => s.label === w.label); return { ...w, status: s?.status || 'idle' }; }) || [];
-  const activeCount = agents.filter(a => a.status === 'active').length;
-  if (agents.length === 0) return null;
-  return (
-    <div className="flex items-center gap-2 justify-end">
-      <span className="text-[11px] text-zinc-500 font-medium">Agents:</span>
-      <div className="flex items-center gap-1.5">
-        {agents.map(agent => (
-          <Link key={agent.label} href="/agents" title={agent.name} className="relative group">
-            <div className={`w-8 h-8 rounded-full overflow-hidden border-2 transition-all flex-shrink-0 ${agent.status==='active'?'border-orange-500/70 hover:border-orange-500':'border-zinc-700 hover:border-zinc-600'}`}>
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={labelToPortrait(agent.label)} alt={agent.name} className="w-full h-full object-cover" />
-            </div>
-            <span className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-zinc-950 ${agent.status==='active'?'bg-green-400 ring-2 ring-green-400/30':'bg-zinc-700'}`} />
-            <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 px-2 py-0.5 bg-zinc-800 text-zinc-200 text-[10px] rounded whitespace-nowrap opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity z-10">{agent.name}</span>
-          </Link>
-        ))}
-      </div>
-      <span className="text-[11px] ml-1">{activeCount>0?<span className="text-green-400">{activeCount} active</span>:<span className="text-zinc-600">all idle</span>}<span className="text-zinc-700"> · {agents.length}</span></span>
-      <Link href="/agents" className="text-[11px] text-zinc-600 hover:text-orange-400 transition-colors">Manage →</Link>
-    </div>
-  );
-}
 
 function WorkLog() {
   const [entries, setEntries] = useState<ActivityEntry[]>([]);
   const [loading, setLoading] = useState(true);
   useEffect(() => {
     const load = async () => { try { const res = await fetch('/api/activity?limit=10'); if (res.ok) { const d = await res.json(); setEntries(d.entries||[]); } } finally { setLoading(false); } };
-    load(); const i = setInterval(load, 30000); return () => clearInterval(i);
+    load(); const i = setInterval(load, 10000); return () => clearInterval(i);
   }, []);
   return (
     <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 h-full flex flex-col">
@@ -452,50 +420,57 @@ export default function Dashboard() {
     switch (widgetId) {
       case 'health':
         return (
-          <div className="flex flex-wrap items-center gap-3 p-3 bg-zinc-900 border border-zinc-800 rounded-xl">
-            <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 p-3 bg-zinc-900 border border-zinc-800 rounded-xl min-w-0">
+            {/* Status dot + label */}
+            <div className="flex items-center gap-1.5 flex-shrink-0">
               <span className={`w-2 h-2 rounded-full flex-shrink-0 ${data.health.status==='healthy'?'bg-green-400':data.health.status==='degraded'?'bg-yellow-400':'bg-red-400'}`}/>
               <span className="text-sm text-zinc-300 font-medium capitalize">{data.health.status}</span>
             </div>
-            <div className="w-px h-4 bg-zinc-700 hidden sm:block"/>
-            <span className="text-xs text-zinc-500 font-mono">{data.health.defaultModel||'claude-sonnet'}</span>
-            <div className="w-px h-4 bg-zinc-700 hidden sm:block"/>
-            <span className="text-xs text-zinc-500">Up {data.health.uptime}</span>
-            {data.subscription && <>
-              <div className="w-px h-4 bg-zinc-700 hidden sm:block"/>
-              <span className="text-xs text-zinc-600 capitalize">{data.subscription.plan}</span>
-            </>}
-            <div className="ml-auto">
-              <Link href="/launchpad" className="flex items-center gap-1.5 px-3 py-1.5 bg-orange-500/10 text-orange-400 border border-orange-500/20 rounded-lg text-xs font-medium hover:bg-orange-500/20 transition-colors">
+            {/* Metadata row — truncates gracefully on mobile */}
+            <div className="flex items-center gap-1.5 min-w-0 flex-1 overflow-hidden">
+              <div className="w-px h-4 bg-zinc-700 flex-shrink-0"/>
+              <span className="text-xs text-zinc-500 font-mono truncate max-w-[120px] sm:max-w-none" title={data.health.defaultModel||'claude-sonnet'}>
+                {(data.health.defaultModel||'claude-sonnet').replace('anthropic/','')}
+              </span>
+              <div className="w-px h-4 bg-zinc-700 flex-shrink-0 hidden sm:block"/>
+              <span className="text-xs text-zinc-500 flex-shrink-0 hidden sm:block">Up {data.health.uptime}</span>
+              {data.subscription && (
+                <>
+                  <div className="w-px h-4 bg-zinc-700 flex-shrink-0 hidden sm:block"/>
+                  <span className="text-xs text-zinc-600 capitalize flex-shrink-0 hidden sm:block">{data.subscription.plan}</span>
+                </>
+              )}
+            </div>
+            {/* Launchpad — always visible, pushed right */}
+            <div className="flex-shrink-0 ml-auto">
+              <Link href="/launchpad" className="flex items-center gap-1 sm:gap-1.5 px-2 sm:px-3 py-1.5 bg-orange-500/10 text-orange-400 border border-orange-500/20 rounded-lg text-xs font-medium hover:bg-orange-500/20 transition-colors whitespace-nowrap">
                 <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
-                Launchpad
+                <span className="hidden sm:inline">Launchpad</span>
               </Link>
             </div>
           </div>
         );
       case 'files':
         return (
-          <div className="flex items-center justify-between gap-2">
-            <div className="flex flex-wrap gap-2">
-              {(['SOUL.md','MEMORY.md','TOOLS.md','HEARTBEAT.md'] as const).map(file=>(
-                <Link key={file} href={file==='MEMORY.md'?'/memory':`/workspace?file=${file}`} className="px-3 py-1.5 bg-zinc-900 border border-zinc-800 rounded-lg text-xs text-zinc-400 hover:text-zinc-200 hover:border-zinc-700 transition-colors font-mono">{file}</Link>
-              ))}
-              <Link href="/workspace" className="flex items-center gap-1 px-3 py-1.5 text-xs text-zinc-600 hover:text-zinc-400 transition-colors">All files →</Link>
-            </div>
-            <AgentAvatarRow agentData={agentData}/>
+          <div className="flex flex-wrap gap-2">
+            {(['SOUL.md','MEMORY.md','TOOLS.md','HEARTBEAT.md'] as const).map(file=>(
+              <Link key={file} href={file==='MEMORY.md'?'/memory':`/workspace?file=${file}`} className="px-3 py-1.5 bg-zinc-900 border border-zinc-800 rounded-lg text-xs text-zinc-400 hover:text-zinc-200 hover:border-zinc-700 transition-colors font-mono">{file}</Link>
+            ))}
+            <Link href="/workspace" className="flex items-center gap-1 px-3 py-1.5 text-xs text-zinc-600 hover:text-zinc-400 transition-colors">All files →</Link>
           </div>
         );
       case 'proactivity':    return <ProactivityBanner />;
       case 'token-usage':    return <TokenUsage tokens={data.tokens} subscription={data.subscription}/>;
-      case 'live-agents':    return <ActiveAgentsPanel workspaces={agentData?.workspaces || []} sessions={agentData?.sessions || []} />;
       case 'work-log':       return <WorkLog/>;
       case 'skills':         return <CompactSkills skills={data.skills}/>;
+      case 'agent-command-center': return <AgentCommandCenter />;
       case 'linear-issues':  return <LinearIssuesWidget/>;
       case 'cron-jobs':      return <CronJobsWidget/>;
       case 'recent-reports': return <RecentReportsWidget/>;
       case 'site-health':    return <SiteHealthWidget/>;
       case 'github-activity':return <GithubActivityWidget/>;
       case 'intel-feed':     return <IntelFeedWidget/>;
+      case 'github-commits': return <GitHubCommitHeatmap/>;
       default:               return null;
     }
   };

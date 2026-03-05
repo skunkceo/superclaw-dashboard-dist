@@ -1,19 +1,19 @@
 #!/usr/bin/env node
 /**
  * approved-proposals.js
- * List approved bridge work proposals that are ready for agent pickup.
+ * List queued bridge work proposals that are ready for agent pickup.
  *
  * Usage:
- *   node approved-proposals.js           — JSON array of approved proposals
+ *   node approved-proposals.js           — JSON array of queued proposals
  *   node approved-proposals.js start <id> <branch> — mark proposal in_progress
- *   node approved-proposals.js complete <id> <pr_url> [pr_number] — mark done
+ *   node approved-proposals.js review <id> <pr_url> [pr_number] — mark in_review
+ *   node approved-proposals.js complete <id> — mark completed
  */
 
 const Database = require('better-sqlite3');
 const path = require('path');
-const os = require('os');
 
-const dataDir = process.env.SUPERCLAW_DATA_DIR || path.join(os.homedir(), '.superclaw');
+const dataDir = process.env.SUPERCLAW_DATA_DIR || '/home/mike/.superclaw';
 const db = new Database(path.join(dataDir, 'superclaw.db'));
 
 const [,, command, ...args] = process.argv;
@@ -21,7 +21,7 @@ const [,, command, ...args] = process.argv;
 try {
   if (!command || command === 'list') {
     const proposals = db.prepare(
-      "SELECT * FROM work_proposals WHERE status = 'approved' ORDER BY approved_at ASC"
+      "SELECT * FROM work_proposals WHERE status = 'queued' ORDER BY approved_at ASC"
     ).all();
     console.log(JSON.stringify(proposals));
 
@@ -33,16 +33,24 @@ try {
     ).run(branchName || null, id);
     console.log(JSON.stringify({ success: true, id, status: 'in_progress' }));
 
-  } else if (command === 'complete') {
+  } else if (command === 'review') {
     const [id, prUrl, prNumber] = args;
     if (!id) { console.error('Proposal ID required'); process.exit(1); }
     db.prepare(
-      "UPDATE work_proposals SET status = 'done', completed_at = ?, pr_url = ?, pr_number = ? WHERE id = ?"
-    ).run(Date.now(), prUrl || null, prNumber ? parseInt(prNumber) : null, id);
-    console.log(JSON.stringify({ success: true, id, status: 'done' }));
+      "UPDATE work_proposals SET status = 'in_review', pr_url = ?, pr_number = ? WHERE id = ?"
+    ).run(prUrl || null, prNumber ? parseInt(prNumber) : null, id);
+    console.log(JSON.stringify({ success: true, id, status: 'in_review' }));
+
+  } else if (command === 'complete') {
+    const [id] = args;
+    if (!id) { console.error('Proposal ID required'); process.exit(1); }
+    db.prepare(
+      "UPDATE work_proposals SET status = 'completed', completed_at = ? WHERE id = ?"
+    ).run(Date.now(), id);
+    console.log(JSON.stringify({ success: true, id, status: 'completed' }));
 
   } else {
-    console.error('Usage: approved-proposals.js [list|start <id> [branch]|complete <id> <pr_url> [pr_number]]');
+    console.error('Usage: approved-proposals.js [list|start <id> [branch]|review <id> <pr_url> [pr_number]|complete <id>]');
     process.exit(1);
   }
 } catch (err) {

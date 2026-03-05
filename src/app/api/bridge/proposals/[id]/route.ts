@@ -6,7 +6,10 @@ import { getStateIdByType, updateLinearIssueState } from '@/lib/linear';
 /**
  * PATCH /api/bridge/proposals/:id
  * Update a work proposal
- * Body: { action: 'approve' | 'reject' | 'start' | 'complete', branch_name?, pr_url?, pr_number?, notes? }
+ * Body: {
+ *   action: 'add_to_backlog' | 'queue' | 'unqueue' | 'start' | 'mark_review' | 'mark_complete' | 'reject' | 'move_to_ideas',
+ *   branch_name?, pr_url?, pr_number?, notes?
+ * }
  */
 export async function PATCH(
   request: Request,
@@ -34,9 +37,40 @@ export async function PATCH(
     const updates: Record<string, any> = {};
 
     switch (action) {
-      case 'approve':
-        updates.status = 'approved';
+      case 'add_to_backlog':
+        updates.status = 'backlog';
+        break;
+
+      case 'queue':
+        updates.status = 'queued';
         updates.approved_at = Date.now();
+        break;
+
+      case 'unqueue':
+        updates.status = 'backlog';
+        updates.approved_at = null;
+        break;
+
+      case 'move_to_ideas':
+        updates.status = 'idea';
+        break;
+
+      case 'start':
+        updates.status = 'in_progress';
+        if (branch_name) updates.branch_name = branch_name;
+        break;
+
+      case 'mark_review':
+        updates.status = 'in_review';
+        if (pr_url) updates.pr_url = pr_url;
+        if (pr_number) updates.pr_number = pr_number;
+        break;
+
+      case 'mark_complete':
+        updates.status = 'completed';
+        updates.completed_at = Date.now();
+        if (pr_url) updates.pr_url = pr_url;
+        if (pr_number) updates.pr_number = pr_number;
         break;
 
       case 'reject':
@@ -56,16 +90,9 @@ export async function PATCH(
         }
         break;
 
-      case 'start':
-        updates.status = 'in_progress';
-        if (branch_name) updates.branch_name = branch_name;
-        break;
-
-      case 'complete':
-        updates.status = 'done';
-        updates.completed_at = Date.now();
-        if (pr_url) updates.pr_url = pr_url;
-        if (pr_number) updates.pr_number = pr_number;
+      case 'dismiss':
+        updates.status = 'dismissed';
+        updates.rejected_at = Date.now();
         break;
 
       default:
@@ -74,9 +101,9 @@ export async function PATCH(
 
     // Apply optional fields
     if (notes !== undefined) updates.notes = notes;
-    if (branch_name !== undefined && action !== 'start') updates.branch_name = branch_name;
-    if (pr_url !== undefined && action !== 'complete') updates.pr_url = pr_url;
-    if (pr_number !== undefined && action !== 'complete') updates.pr_number = pr_number;
+    if (branch_name !== undefined && !updates.branch_name) updates.branch_name = branch_name;
+    if (pr_url !== undefined && !updates.pr_url) updates.pr_url = pr_url;
+    if (pr_number !== undefined && !updates.pr_number) updates.pr_number = pr_number;
 
     updateWorkProposal(id, updates);
 

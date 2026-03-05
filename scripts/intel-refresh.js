@@ -18,7 +18,7 @@ const { randomUUID } = require('crypto');
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 
-const dataDir = process.env.SUPERCLAW_DATA_DIR || path.join(os.homedir(), '.superclaw');
+const dataDir = process.env.SUPERCLAW_DATA_DIR || '/home/mike/.superclaw';
 const db = new Database(path.join(dataDir, 'superclaw.db'));
 
 // Load API key from env or .env.local
@@ -37,6 +37,70 @@ if (!BRAVE_KEY) {
 if (!BRAVE_KEY) {
   console.error('ERROR: BRAVE_SEARCH_API_KEY not found. Set it in .env.local or environment.');
   process.exit(1);
+
+// Load Anthropic API key for insight generation
+let ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || '';
+if (!ANTHROPIC_API_KEY) {
+  const envFile = path.join(__dirname, "..", ".env.local");
+  if (fs.existsSync(envFile)) {
+    const lines = fs.readFileSync(envFile, "utf8").split("\n");
+    for (const line of lines) {
+      const m = line.match(/^ANTHROPIC_API_KEY=(.+)$/);
+      if (m) { ANTHROPIC_API_KEY = m[1].trim(); break; }
+    }
+  }
+}
+
+// Generate insight for an intel item using Anthropic API
+async function generateInsight(category, title, summary) {
+  if (!ANTHROPIC_API_KEY) return null;
+  
+  const prompt = `You are a strategic advisor for Skunk Global, a WordPress plugin suite (SkunkCRM, SkunkForms, SkunkPages).
+
+Given this market intelligence signal:
+Category: ${category}
+Title: ${title}
+Summary: ${summary}
+
+Write ONE sentence (max 20 words) explaining what this means for Skunk — a specific, actionable implication.
+Start with an action verb or "Skunk should/could/needs".
+Examples:
+- "SkunkForms should highlight anti-spam features — competitors' users are frustrated with spam."
+- "Reach out to wppool.dev for roundup inclusion — this is a backlink + visibility opportunity."
+- "Build a FluentCRM comparison page before this competitor does."
+
+Respond with ONLY the one sentence. No quotes, no bullet points.`;
+
+  try {
+    const response = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": ANTHROPIC_API_KEY,
+        "anthropic-version": "2023-06-01"
+      },
+      body: JSON.stringify({
+        model: "claude-3-5-haiku-20241022",
+        max_tokens: 50,
+        messages: [{
+          role: "user",
+          content: prompt
+        }]
+      })
+    });
+
+    if (!response.ok) {
+      console.error(`Anthropic API error: ${response.status}`);
+      return null;
+    }
+
+    const data = await response.json();
+    return data.content[0].text.trim();
+  } catch (error) {
+    console.error(`Error calling Anthropic API: ${error.message}`);
+    return null;
+  }
+}
 }
 
 // ─── Linear integration ─────────────────────────────────────────────────────────
@@ -191,26 +255,33 @@ function buildDynamicQueries(context) {
 const businessContext = readBusinessContext();
 const dynamicQueries = buildDynamicQueries(businessContext);
 
+// Queries find actionable signals: roundups to pitch, competitor features to copy,
+// user pain points to target, market trends for product direction.
 const BASE_QUERIES = [
-  { query: 'WordPress CRM plugin news 2026', category: 'market' },
-  { query: 'WordPress forms plugin update release 2026', category: 'market' },
-  { query: 'WPForms update new features 2026', category: 'competitor' },
-  { query: 'Gravity Forms announcement 2026', category: 'competitor' },
-  { query: 'FluentCRM update changelog 2026', category: 'competitor' },
-  { query: 'HubSpot WordPress plugin update', category: 'competitor' },
-  { query: 'best WordPress CRM plugin comparison', category: 'seo' },
-  { query: 'best WordPress contact form plugin', category: 'seo' },
-  { query: 'WordPress plugin business growth strategy', category: 'opportunity' },
-  { query: 'small business WordPress plugin alternatives SaaS', category: 'opportunity' },
-  { query: 'WordPress developer community news this week', category: 'wordpress' },
-];
+  // Roundup outreach opportunities
+  { query: 'best WordPress CRM plugins 2026 roundup', category: 'roundup' },
+  { query: 'best WordPress contact form plugin 2026 comparison', category: 'roundup' },
+  { query: 'best WordPress form builder plugins list', category: 'roundup' },
+  { query: 'top WordPress CRM plugin alternatives 2026', category: 'roundup' },
 
-// Merge — deduplicate by query string, dynamic ones supplement base
-const seenQueries = new Set(BASE_QUERIES.map(q => q.query.toLowerCase()));
-const QUERIES = [
-  ...BASE_QUERIES,
-  ...dynamicQueries.filter(q => !seenQueries.has(q.query.toLowerCase())),
+  // Competitor feature signals
+  { query: 'WPForms new feature release 2026', category: 'competitor_feature' },
+  { query: 'Gravity Forms update new release 2026', category: 'competitor_feature' },
+  { query: 'FluentCRM new features update 2026', category: 'competitor_feature' },
+  { query: 'HubSpot WordPress plugin update 2026', category: 'competitor_feature' },
+
+  // User pain points
+  { query: 'WPForms too expensive alternatives reddit', category: 'pain_point' },
+  { query: 'Gravity Forms pricing complaints alternatives', category: 'pain_point' },
+  { query: 'WordPress CRM plugin free alternative HubSpot', category: 'pain_point' },
+  { query: 'contact form WordPress spam problem solution 2026', category: 'pain_point' },
+
+  // Market trends
+  { query: 'WordPress form builder AI features 2026', category: 'trend' },
+  { query: 'WordPress CRM automation features small business 2026', category: 'trend' },
+  { query: 'WordPress plugin bundle suite all-in-one 2026', category: 'trend' },
 ];
+const QUERIES = BASE_QUERIES;
 
 // ─── Brave search ─────────────────────────────────────────────────────────────
 
@@ -252,23 +323,211 @@ function scoreRelevance(title, summary) {
 }
 
 function insertIntel(category, title, summary, url, source, relevanceScore) {
+  if (url) {
+    const existing = db.prepare('SELECT id FROM intel_items WHERE url = ? LIMIT 1').get(url);
+    if (existing) return null;
+  }
+  const id = randomUUID();
   db.prepare(`
     INSERT INTO intel_items (id, category, title, summary, url, source, relevance_score)
     VALUES (?, ?, ?, ?, ?, ?, ?)
-  `).run(randomUUID(), category, title.slice(0, 200), summary.slice(0, 500), url || null, source, relevanceScore);
+  `).run(id, category, title.slice(0, 200), summary.slice(0, 500), url || null, source, relevanceScore);
+  return id;
+}
+
+// Generate and update insight for an intel item
+async function updateInsightForItem(itemId, category, title, summary) {
+  const insight = await generateInsight(category, title, summary);
+  if (insight) {
+    db.prepare("UPDATE intel_items SET insight = ? WHERE id = ?").run(insight, itemId);
+    return insight;
+  }
+  return null;
+}
+
+// ─── Helper: extract source domain ───────────────────────────────────────────
+function extractDomain(url) {
+  try { return new URL(url).hostname.replace('www.', ''); } catch { return null; }
+}
+
+// ─── Helper: extract specific feature from competitor text ────────────────────
+function extractFeatureFromText(title, summary) {
+  const text = (title + ' ' + summary).toLowerCase();
+  const features = [
+    ['ai ', 'AI-powered features'], ['map field', 'map field'], ['geolocation', 'geolocation'],
+    ['webhook', 'webhook'], ['conditional logic', 'conditional logic'],
+    ['turnstile', 'Cloudflare Turnstile'], ['stripe', 'Stripe payment'],
+    ['multi-step', 'multi-step form'], ['file upload', 'file upload'],
+    ['form abandonment', 'form abandonment tracking'], ['hubspot integration', 'HubSpot integration'],
+    ['zapier', 'Zapier integration'], ['calculator', 'calculator field'],
+    ['signature', 'signature field'], ['rating field', 'star rating field'],
+  ];
+  for (const [keyword, label] of features) {
+    if (text.includes(keyword)) return label;
+  }
+  return null;
+}
+
+function extractCompetitorFromText(title, summary) {
+  const text = (title + ' ' + summary).toLowerCase();
+  if (text.includes('wpforms')) return 'WPForms';
+  if (text.includes('gravity forms')) return 'Gravity Forms';
+  if (text.includes('fluentcrm') || text.includes('fluent crm')) return 'FluentCRM';
+  if (text.includes('hubspot')) return 'HubSpot';
+  if (text.includes('fluent forms')) return 'Fluent Forms';
+  if (text.includes('ninja forms')) return 'Ninja Forms';
+  return null;
+}
+
+// ─── Core: build an actionable suggestion from an intel item ──────────────────
+// Rules:
+//   1. Title must be VERB-FIRST and SPECIFIC — no "Research:" or "Opportunity:" prefixes
+//   2. Why must reference the specific signal (article, competitor, feature)
+//   3. Must recommend a concrete action (pitch, write, build, ship, target)
+function buildSuggestionFromIntel(item) {
+  const { category, title, summary, url, relevance_score } = item;
+  const domain = url ? extractDomain(url) : null;
+  const text = (title + ' ' + summary).toLowerCase();
+
+  if (category === 'roundup') {
+    if (relevance_score < 55) return null;
+    const product = (text.includes('form') || text.includes('contact form')) ? 'SkunkForms' :
+                    (text.includes('crm')) ? 'SkunkCRM' : 'Skunk products';
+    const shortTitle = title.length > 50 ? title.slice(0, 47) + '...' : title;
+    return {
+      title: `Pitch ${product} for inclusion in "${shortTitle}"`,
+      why: `${domain || 'This site'} published a roundup that doesn't include us. Getting listed drives backlinks and qualified traffic. Reach out with a short pitch and a free license.`,
+      effort: 'low', impact: 'high', impact_score: 78, category: 'marketing', priority: 2,
+    };
+  }
+
+  if (category === 'competitor_feature') {
+    if (relevance_score < 60) return null;
+    const competitor = extractCompetitorFromText(title, summary) || 'a competitor';
+    const feature = extractFeatureFromText(title, summary);
+    if (feature) {
+      const isFormFeature = ['conditional logic', 'file upload', 'multi-step form', 'webhook', 'Cloudflare Turnstile', 'map field', 'geolocation', 'AI-powered features'].includes(feature);
+      const product = isFormFeature ? 'SkunkForms' : 'SkunkCRM';
+      return {
+        title: `Evaluate shipping ${feature} in ${product} — ${competitor} just released this`,
+        why: `${competitor} shipped ${feature} (source: "${title.slice(0, 80)}"). If we don't have parity this is a sales objection and a gap in comparison content. Check if it's on the roadmap or document our counter-positioning.`,
+        effort: 'medium', impact: 'high', impact_score: 72, category: 'product', priority: 2,
+      };
+    }
+    return {
+      title: `Scan ${competitor}'s latest release for product gaps we can exploit`,
+      why: `${competitor} shipped an update ("${title.slice(0, 70)}"). Review the changelog for features users are excited about — these are roadmap signals and comparison content opportunities.`,
+      effort: 'low', impact: 'medium', impact_score: 58, category: 'research', priority: 3,
+    };
+  }
+
+  if (category === 'pain_point') {
+    if (relevance_score < 50) return null;
+    const competitor = extractCompetitorFromText(title, summary);
+    const isPricing = text.includes('expensive') || text.includes('pricing') || text.includes('cost') || text.includes('affordable');
+    const isAlternative = text.includes('alternative') || text.includes('switch') || text.includes('replace');
+    const isSpam = text.includes('spam') || text.includes('captcha') || text.includes('bot');
+
+    if (isPricing && competitor) {
+      return {
+        title: `Write "Best ${competitor} alternatives for small business" targeting price-conscious switchers`,
+        why: `Users are searching for ${competitor} alternatives due to pricing (source: "${title.slice(0, 70)}"). High-intent audience at decision stage — a comparison post with SkunkForms/SkunkCRM as the recommendation captures them.`,
+        effort: 'medium', impact: 'high', impact_score: 82, category: 'content', priority: 2,
+      };
+    }
+    if (isAlternative && competitor) {
+      return {
+        title: `Create a dedicated "${competitor} alternative" landing page on skunkforms.com`,
+        why: `People are actively looking to replace ${competitor} (source: "${title.slice(0, 70)}"). A targeted page intercepting that search drives qualified switcher traffic directly.`,
+        effort: 'low', impact: 'high', impact_score: 80, category: 'content', priority: 2,
+      };
+    }
+    if (isSpam) {
+      return {
+        title: 'Write "WordPress contact form spam — how to stop it in 2026" on skunkforms.com/blog',
+        why: `Form spam is one of the most-searched WordPress problems (source: "${title.slice(0, 70)}"). A guide targeting this positions SkunkForms as the authority and funnels readers to try it.`,
+        effort: 'medium', impact: 'high', impact_score: 75, category: 'content', priority: 2,
+      };
+    }
+    return null;
+  }
+
+  if (category === 'trend') {
+    if (relevance_score < 55) return null;
+    const isAI = text.includes(' ai ') || text.includes('artificial intelligence') || text.includes('ai-powered');
+    const isAutomation = text.includes('automation') || text.includes('workflow');
+    const isBundle = text.includes('bundle') || text.includes('suite') || text.includes('all-in-one');
+
+    if (isAI) {
+      return {
+        title: 'Add AI-powered field suggestions to SkunkForms — this is becoming table stakes',
+        why: `AI features in form builders are trending (source: "${title.slice(0, 70)}"). Even a basic "suggest fields for this form type" feature keeps us competitive and gives us content to write about.`,
+        effort: 'medium', impact: 'high', impact_score: 76, category: 'product', priority: 2,
+      };
+    }
+    if (isAutomation) {
+      return {
+        title: 'Build a "SkunkForms to SkunkCRM" automation demo — our native integration is our biggest differentiator',
+        why: `CRM automation is trending for small businesses (source: "${title.slice(0, 70)}"). The native forms-to-CRM integration nobody else has. A live demo page is our most powerful sales asset.`,
+        effort: 'medium', impact: 'high', impact_score: 80, category: 'product', priority: 2,
+      };
+    }
+    if (isBundle) {
+      return {
+        title: 'Create a "WordPress plugin suite vs SaaS stack" cost calculator landing page',
+        why: `All-in-one WordPress suites are gaining interest (source: "${title.slice(0, 70)}"). Skunk is uniquely the suite play — a page showing total HubSpot + Typeform + Kajabi cost vs. Skunk drives the pricing narrative.`,
+        effort: 'low', impact: 'high', impact_score: 82, category: 'content', priority: 2,
+      };
+    }
+    return null;
+  }
+
+  return null;
 }
 
 // ─── Suggestion generation ────────────────────────────────────────────────────
 
 const STANDING_SUGGESTIONS = [
-  { title: 'Write a SkunkForms vs WPForms comparison post', why: 'Comparison content drives high-intent traffic. Users searching "SkunkForms vs WPForms" are ready to choose — we should own that content.', effort: 'medium', impact: 'high', impact_score: 80, category: 'content', priority: 2 },
-  { title: 'Update SkunkCRM homepage H1 and meta description for CRM keywords', why: 'Current homepage is thin on CRM keyword signals. A targeted H1 and meta could improve ranking for "WordPress CRM plugin" searches.', effort: 'low', impact: 'high', impact_score: 75, category: 'seo', priority: 2 },
-  { title: 'Write Reddit community post about WordPress form builder frustrations', why: 'Reddit is our highest potential organic channel. A thoughtful post drives traffic and builds trust.', effort: 'low', impact: 'high', impact_score: 70, category: 'marketing', priority: 2 },
-  { title: 'Generate 10 new blog post ideas for skunkcrm.com/resources/', why: 'Content velocity is our main SEO lever. The resources section needs consistent new posts to build topical authority.', effort: 'low', impact: 'medium', impact_score: 60, category: 'content', priority: 3 },
-  { title: 'Run PageSpeed audit on SkunkForms and SkunkCRM landing pages', why: 'Core Web Vitals affect Google rankings. Quick wins here could boost SEO performance.', effort: 'low', impact: 'medium', impact_score: 55, category: 'seo', priority: 3 },
-  { title: 'Research Skunk Global product pricing vs competitors', why: 'At $50/mo per product, we are significantly above market. Understanding competitor pricing is critical for conversion rate.', effort: 'low', impact: 'high', impact_score: 80, category: 'research', priority: 2 },
-  { title: 'Write "WordPress CRM plugin: complete guide" long-form post', why: 'High-volume search term with commercial intent. A comprehensive guide could rank and drive CRM plugin downloads.', effort: 'high', impact: 'high', impact_score: 80, category: 'content', priority: 2 },
-  { title: 'Audit SkunkForms free plugin features vs WPForms free tier', why: 'Knowing the gap informs content and roadmap decisions.', effort: 'medium', impact: 'medium', impact_score: 60, category: 'product', priority: 3 },
+  {
+    title: 'Pitch SkunkForms and SkunkCRM to WPBeginner for editorial coverage',
+    why: 'WPBeginner is the largest WordPress publication. Getting mentioned in one roundup drives thousands of visits and significant SEO authority. Reach out via their tip line with a free license + one-liner pitch.',
+    effort: 'low', impact: 'high', impact_score: 90, category: 'marketing', priority: 1,
+  },
+  {
+    title: 'Write "WPForms vs SkunkForms — honest comparison" targeting WPForms alternative searches',
+    why: 'Comparison content captures high-intent traffic at decision stage. WPForms is the market leader — beating them in a search result is a shortcut to qualified traffic.',
+    effort: 'medium', impact: 'high', impact_score: 85, category: 'content', priority: 1,
+  },
+  {
+    title: 'Get SkunkCRM listed in Kinsta, Cloudways, and WP Engine blog roundups',
+    why: 'Managed WordPress hosts publish "best WordPress CRM" lists that rank well. Getting listed means permanent backlinks and recurring qualified traffic. Most accept plugin submissions.',
+    effort: 'low', impact: 'high', impact_score: 82, category: 'marketing', priority: 2,
+  },
+  {
+    title: 'Post a "I replaced HubSpot with a $50/year WordPress plugin" thread on r/WordPress',
+    why: 'Reddit is the highest-converting organic channel for WordPress plugins. An honest builder story gets upvotes and direct installs. No marketing speak — real voice.',
+    effort: 'low', impact: 'high', impact_score: 80, category: 'marketing', priority: 2,
+  },
+  {
+    title: 'Build a "SkunkForms + SkunkCRM native integration" demo page with live walkthrough',
+    why: 'The native form-to-CRM integration is our biggest differentiator. Nobody else in WordPress has this end-to-end. A live demo showing a submission flowing into SkunkCRM is our most powerful sales asset.',
+    effort: 'medium', impact: 'high', impact_score: 85, category: 'product', priority: 1,
+  },
+  {
+    title: 'Update SkunkCRM homepage H1 and meta for "WordPress CRM plugin" keyword',
+    why: 'The homepage is thin on exact-match keyword signals. 30 minutes to update the H1 and meta — could improve ranking for a high-value commercial search term.',
+    effort: 'low', impact: 'high', impact_score: 72, category: 'seo', priority: 2,
+  },
+  {
+    title: 'Build a "WordPress plugin stack calculator" — show real SaaS spend vs Skunk suite cost',
+    why: 'The Skunk pitch is "stop paying SaaS tax." Let someone enter their current tools and see what they spend vs. the Skunk suite cost. Shareable, embeddable, goes viral in WP communities.',
+    effort: 'medium', impact: 'high', impact_score: 84, category: 'product', priority: 2,
+  },
+  {
+    title: 'Write "WordPress CRM plugin — complete 2026 guide" for high-volume CRM keyword',
+    why: '"Best WordPress CRM plugin" gets thousands of monthly searches. A 3,000-word comprehensive guide targeting this commercially builds topical authority for skunkcrm.com.',
+    effort: 'high', impact: 'high', impact_score: 80, category: 'content', priority: 2,
+  },
 ];
 
 async function seedStandingSuggestions() {
@@ -393,10 +652,11 @@ async function main() {
         if (existingTitles.has(norm)) { skipped++; continue; }
 
         const score = scoreRelevance(r.title, r.description);
-        const id = randomUUID();
-        insertIntel(category, r.title, r.description, r.url, 'brave', score);
-        existingTitles.add(norm);
-        newItems.push({ id, category, title: r.title, summary: r.description, relevance_score: score });
+        const id = insertIntel(category, r.title, r.description, r.url, 'brave', score);
+        if (id) {
+          existingTitles.add(norm);
+          newItems.push({ id, category, title: r.title, summary: r.description, url: r.url, relevance_score: score });
+        }
       }
 
       await sleep(1100); // respect 1 req/sec rate limit
@@ -405,6 +665,21 @@ async function main() {
     }
   }
 
+
+  // Generate insights for new items
+  console.log(`Generating insights for ${newItems.length} new items...`);
+  let insightsGenerated = 0;
+  for (const item of newItems) {
+    try {
+      const insight = await updateInsightForItem(item.id, item.category, item.title, item.summary);
+      if (insight) {
+        insightsGenerated++;
+      }
+      await sleep(200); // Rate limit
+    } catch (error) {
+      console.error(`Error generating insight for ${item.id}: ${error.message}`);
+    }
+  }
   const standingResult = await seedStandingSuggestions();
   const intelResult = await generateFromIntel(newItems);
 
@@ -422,6 +697,7 @@ async function main() {
     standingSuggestions: standingResult.added,
     linearIssuesCreated: standingResult.linearCreated + intelResult.linearCreated,
     elapsedSeconds: elapsed,
+    insightsGenerated,
   };
 
   // Log to activity feed

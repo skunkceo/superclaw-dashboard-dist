@@ -127,10 +127,11 @@ export async function runIntelRefresh(): Promise<RefreshResult> {
           url: r.url || null,
           source,
           relevance_score: scoreRelevance(r.title, r.description, category),
+          insight: null,
         };
 
         createIntelItem(item);
-        existing.push({ ...item, created_at: Date.now(), read_at: null });
+        existing.push({ ...item, created_at: Date.now(), read_at: null, insight: null });
         result.itemsAdded++;
       }
 

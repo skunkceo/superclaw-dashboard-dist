@@ -16,10 +16,11 @@ export default function SettingsPage() {
 
   // Google Analytics connection
   const [analyticsJson, setAnalyticsJson] = useState('');
-  const [propertyId, setPropertyId] = useState('');
   const [analyticsMsg, setAnalyticsMsg] = useState<{ success: boolean; message: string } | null>(null);
   const [savingAnalytics, setSavingAnalytics] = useState(false);
   const [analyticsStatus, setAnalyticsStatus] = useState<'unknown' | 'connected' | 'not_connected'>('unknown');
+  const [needsRestart, setNeedsRestart] = useState(false);
+  const [restarting, setRestarting] = useState(false);
 
   useEffect(() => {
     fetch('/api/settings/analytics')
@@ -27,7 +28,6 @@ export default function SettingsPage() {
       .then(d => {
         if (d?.configured) {
           setAnalyticsStatus('connected');
-          if (d.propertyId) setPropertyId(d.propertyId);
         } else {
           setAnalyticsStatus('not_connected');
         }
@@ -39,31 +39,35 @@ export default function SettingsPage() {
     setAnalyticsMsg(null);
     setSavingAnalytics(true);
     try {
-      let parsed: Record<string, string> | null = null;
-      if (analyticsJson.trim()) {
-        try {
-          parsed = JSON.parse(analyticsJson.trim());
-        } catch {
-          setAnalyticsMsg({ success: false, message: 'Invalid JSON — paste the full service account key file' });
-          setSavingAnalytics(false);
-          return;
-        }
-        if (!parsed?.client_email || !parsed?.private_key) {
-          setAnalyticsMsg({ success: false, message: 'JSON must contain client_email and private_key fields' });
-          setSavingAnalytics(false);
-          return;
-        }
+      if (!analyticsJson.trim()) {
+        setAnalyticsMsg({ success: false, message: 'Paste your service account JSON to save' });
+        setSavingAnalytics(false);
+        return;
+      }
+      let parsed: Record<string, string>;
+      try {
+        parsed = JSON.parse(analyticsJson.trim());
+      } catch {
+        setAnalyticsMsg({ success: false, message: 'Invalid JSON — paste the full service account key file' });
+        setSavingAnalytics(false);
+        return;
+      }
+      if (!parsed?.client_email || !parsed?.private_key) {
+        setAnalyticsMsg({ success: false, message: 'JSON must contain client_email and private_key fields' });
+        setSavingAnalytics(false);
+        return;
       }
       const res = await fetch('/api/settings/analytics', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ serviceAccountJson: parsed, propertyId: propertyId.trim() }),
+        body: JSON.stringify({ serviceAccountJson: parsed }),
       });
       const d = await res.json();
       if (res.ok && d.success) {
-        setAnalyticsMsg({ success: true, message: 'Credentials saved. Restart the server for changes to take effect.' });
+        setAnalyticsMsg({ success: true, message: 'Credentials saved. GA4 properties and GSC sites will be auto-discovered.' });
         setAnalyticsStatus('connected');
         setAnalyticsJson('');
+        setNeedsRestart(true);
       } else {
         setAnalyticsMsg({ success: false, message: d.error || 'Failed to save credentials' });
       }
@@ -71,6 +75,20 @@ export default function SettingsPage() {
       setAnalyticsMsg({ success: false, message: 'Request failed' });
     } finally {
       setSavingAnalytics(false);
+    }
+  };
+
+  const handleRestart = async () => {
+    setRestarting(true);
+    try {
+      await fetch('/api/system/restart', { method: 'POST' });
+      setAnalyticsMsg({ success: true, message: 'Restarting — the page will reload in a moment.' });
+      setNeedsRestart(false);
+      setTimeout(() => window.location.reload(), 5000);
+    } catch {
+      setAnalyticsMsg({ success: false, message: 'Restart failed. Run `openclaw gateway restart` in your terminal.' });
+    } finally {
+      setRestarting(false);
     }
   };
 
@@ -396,9 +414,9 @@ export default function SettingsPage() {
                 </div>
                 <button
                   onClick={() => setProSettings(p => ({ ...p, suggestion_auto_generate: p.suggestion_auto_generate === 'true' ? 'false' : 'true' }))}
-                  className={`relative w-11 h-6 rounded-full transition-colors ${proSettings.suggestion_auto_generate === 'true' ? 'bg-orange-500' : 'bg-zinc-700'}`}
+                  className={`relative w-11 h-6 rounded-full transition-colors cursor-pointer overflow-hidden ${proSettings.suggestion_auto_generate === 'true' ? 'bg-orange-500' : 'bg-zinc-700'}`}
                 >
-                  <span className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-transform ${proSettings.suggestion_auto_generate === 'true' ? 'translate-x-6' : 'translate-x-1'}`} />
+                  <span className={`absolute top-1 left-0 w-4 h-4 bg-white rounded-full transition-transform ${proSettings.suggestion_auto_generate === 'true' ? 'translate-x-6' : 'translate-x-1'}`} />
                 </button>
               </div>
 
@@ -481,17 +499,10 @@ export default function SettingsPage() {
               </div>
             </div>
             <div className="p-6 space-y-5">
-              <div>
-                <label className="block text-sm font-medium text-zinc-300 mb-1.5">GA4 Property ID</label>
-                <input
-                  type="text"
-                  value={propertyId}
-                  onChange={e => setPropertyId(e.target.value)}
-                  className="w-full px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-white text-sm focus:ring-1 focus:ring-orange-500 focus:outline-none font-mono"
-                  placeholder="e.g. 513552077"
-                />
-                <p className="text-xs text-zinc-600 mt-1">Find this in Google Analytics → Admin → Property Settings</p>
-              </div>
+              <p className="text-xs text-zinc-500">
+                GA4 properties and Search Console sites are discovered automatically from the service account.
+                No property ID needed.
+              </p>
               <div>
                 <label className="block text-sm font-medium text-zinc-300 mb-1.5">Service Account Key (JSON)</label>
                 <textarea
@@ -503,17 +514,29 @@ export default function SettingsPage() {
                 />
                 <p className="text-xs text-zinc-600 mt-1">
                   Create a service account in Google Cloud Console, grant it Viewer access to GA4 and Search Console, then download the JSON key.
-                  {' '}<a href="https://docs.openclaw.ai" target="_blank" rel="noopener noreferrer" className="text-orange-400 hover:text-orange-300">Setup guide</a>
+                  {' '}<Link href="/guides/google-service-account" className="text-orange-400 hover:text-orange-300">Setup guide</Link>
                 </p>
               </div>
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-3 flex-wrap">
                 <button
                   onClick={handleAnalyticsSave}
-                  disabled={savingAnalytics || (!analyticsJson.trim() && !propertyId.trim())}
+                  disabled={savingAnalytics || !analyticsJson.trim()}
                   className="px-4 py-2 bg-orange-500 hover:bg-orange-400 text-black font-semibold text-sm rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {savingAnalytics ? 'Saving...' : 'Save Credentials'}
                 </button>
+                {needsRestart && (
+                  <button
+                    onClick={handleRestart}
+                    disabled={restarting}
+                    className="px-4 py-2 bg-zinc-700 hover:bg-zinc-600 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-50 flex items-center gap-2"
+                  >
+                    <svg className={`w-3.5 h-3.5 ${restarting ? 'animate-spin' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                    </svg>
+                    {restarting ? 'Restarting...' : 'Restart Server'}
+                  </button>
+                )}
                 {analyticsMsg && (
                   <span className={`text-xs ${analyticsMsg.success ? 'text-green-400' : 'text-red-400'}`}>
                     {analyticsMsg.message}

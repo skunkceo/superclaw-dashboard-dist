@@ -116,16 +116,22 @@ function WorkspacePageContent() {
 
   const handleSave = async () => {
     if (!selectedFile) return;
-    // Subdirectory files (memory/, etc.) are read-only
-    if (selectedFile.includes('/')) return;
 
     setSaving(true);
     setError(null);
 
     try {
-      const url = agentId 
-        ? `/api/workspace/${selectedFile}?agent=${agentId}`
-        : `/api/workspace/${selectedFile}`;
+      let url: string;
+      if (selectedFile.includes('/')) {
+        const encoded = encodeURIComponent(selectedFile);
+        url = agentId
+          ? `/api/workspace/files?path=${encoded}&agent=${agentId}`
+          : `/api/workspace/files?path=${encoded}`;
+      } else {
+        url = agentId
+          ? `/api/workspace/${selectedFile}?agent=${agentId}`
+          : `/api/workspace/${selectedFile}`;
+      }
       const res = await fetch(url, {
         method: 'PUT',
         headers: {
@@ -221,11 +227,9 @@ function WorkspacePageContent() {
                 <div className="flex items-center justify-between mb-3">
                   <div className="flex items-center gap-3">
                     <h3 className="font-mono text-sm text-orange-400">{selectedFile}</h3>
-                    {selectedFile.includes('/') && (
-                      <span className="text-xs text-zinc-500 bg-zinc-800 px-2 py-0.5 rounded">read-only</span>
-                    )}
+
                   </div>
-                  {!selectedFile.includes('/') && (
+                  {
                     <button
                       onClick={handleSave}
                       disabled={!hasChanges || saving}
@@ -237,18 +241,14 @@ function WorkspacePageContent() {
                     >
                       {saving ? 'Saving...' : 'Save'}
                     </button>
-                  )}
+                  }
                 </div>
                 <textarea
                   value={fileContent}
-                  onChange={(e) => { if (!selectedFile.includes('/')) setFileContent(e.target.value); }}
-                  readOnly={selectedFile.includes('/')}
-                  className={`w-full h-full bg-zinc-900/50 border border-zinc-700 rounded-lg p-4 text-white font-mono text-sm resize-none focus:outline-none ${
-                    selectedFile.includes('/')
-                      ? 'cursor-default text-zinc-400 focus:border-zinc-700'
-                      : 'focus:border-orange-500'
-                  }`}
-                  placeholder={selectedFile.includes('/') ? '' : `Edit ${selectedFile}...`}
+                  onChange={(e) => setFileContent(e.target.value)}
+
+                  className="w-full h-full bg-zinc-900/50 border border-zinc-700 rounded-lg p-4 text-white font-mono text-sm resize-none focus:outline-none focus:border-orange-500"
+                  placeholder={`Edit ${selectedFile}...`}
                   style={{ minHeight: 'calc(100vh - 250px)' }}
                 />
               </div>

@@ -241,6 +241,7 @@ export async function runEnhancedIntelRefresh(context?: {
             url: r.url || null,
             source: 'brave',
             relevance_score: 70,
+            insight: null,
           });
           
           existing.push({
@@ -253,6 +254,7 @@ export async function runEnhancedIntelRefresh(context?: {
             relevance_score: 70,
             created_at: Date.now(),
             read_at: null,
+            insight: null,
           });
           
           result.keywords.added++;
@@ -289,6 +291,7 @@ export async function runEnhancedIntelRefresh(context?: {
           url: r.url || null,
           source: 'brave',
           relevance_score: isReddit ? 75 : 60,
+          insight: null,
         });
         
         existing.push({
@@ -301,6 +304,7 @@ export async function runEnhancedIntelRefresh(context?: {
           relevance_score: isReddit ? 75 : 60,
           created_at: Date.now(),
           read_at: null,
+          insight: null,
         });
         
         result.productRadar.added++;

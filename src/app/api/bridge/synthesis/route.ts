@@ -79,19 +79,13 @@ export async function GET(request: NextRequest) {
       const openPRs = githubData.prs.filter((pr: any) => pr.state === 'OPEN');
       const stalePRs = openPRs.filter((pr: any) => {
         const age = Date.now() - new Date(pr.createdAt).getTime();
-        return age > 3 * 24 * 60 * 60 * 1000; // >3 days
+        return age > 7 * 24 * 60 * 60 * 1000; // >7 days
       });
       if (stalePRs.length > 0) {
         brief.needsAttention.push(
-          `${stalePRs.length} stale PR${stalePRs.length > 1 ? 's' : ''} open for >3 days`
+          `${stalePRs.length} stale PR${stalePRs.length > 1 ? 's' : ''} open for >7 days`
         );
       }
-    }
-
-    if (gscData && gscData.avgPosition > 10) {
-      brief.needsAttention.push(
-        `Average search position ${gscData.avgPosition.toFixed(1)} — room to improve rankings`
-      );
     }
 
     if (ga4Data && ga4Data.sessionsChange < 0) {
@@ -136,16 +130,6 @@ export async function GET(request: NextRequest) {
       );
       if (recentTasks.length > 0) {
         brief.now.push(`Follow up on ${recentTasks.length} recent agent tasks`);
-      }
-    }
-
-    // Add top 3 pending/queued suggestions
-    if (intelData && intelData.suggestions) {
-      const topSuggestions = intelData.suggestions.slice(0, 3);
-      for (const suggestion of topSuggestions) {
-        brief.now.push(
-          `Suggested action: ${suggestion.title} (${suggestion.effort} effort, ${suggestion.impact} impact)`
-        );
       }
     }
 

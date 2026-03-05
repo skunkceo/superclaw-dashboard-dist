@@ -12,60 +12,93 @@ const path = require('path');
 const os = require('os');
 const { randomUUID } = require('crypto');
 
-const dataDir = process.env.SUPERCLAW_DATA_DIR || path.join(os.homedir(), '.superclaw');
+const dataDir = process.env.SUPERCLAW_DATA_DIR || '/home/mike/.superclaw';
 const db = new Database(path.join(dataDir, 'superclaw.db'));
 
 const STANDING_SUGGESTIONS = [
+
+  // ─── Micro Sites ─────────────────────────────────────────────────────────────
+
   {
-    title: 'Write a SkunkForms vs WPForms comparison post',
-    why: "Comparison content drives high-intent traffic. Users searching \"SkunkForms vs WPForms\" are ready to choose — we should own that content.",
-    effort: 'medium', impact: 'high', impact_score: 80, category: 'content', priority: 2,
+    title: 'Build wpformcost.com — WordPress form plugin pricing comparison tool',
+    why: 'People Google "how much does WPForms cost" thousands of times a month. A micro site that compares WPForms, Gravity Forms, Ninja Forms, and SkunkForms pricing side-by-side captures that intent and funnels to us. One page, no CMS, pure HTML — build in a day.',
+    effort: 'low', impact: 'high', impact_score: 82, category: 'micro-site', priority: 2,
   },
   {
-    title: 'Update SkunkCRM homepage H1 and meta description for CRM keywords',
-    why: "Current homepage is thin on CRM keyword signals. A targeted H1 and meta could improve ranking for \"WordPress CRM plugin\" searches.",
-    effort: 'low', impact: 'high', impact_score: 75, category: 'seo', priority: 2,
+    title: 'Build a free "WordPress CRM fit finder" quiz micro site',
+    why: 'Quiz funnels convert at 2-3x standard landing pages. A 5-question quiz ("How many contacts? Do you need deals? Email campaigns?") that ends with a recommendation for SkunkCRM, FluentCRM, or HubSpot — with SkunkForms/SkunkCRM always in the mix. Collect emails as part of the result delivery.',
+    effort: 'medium', impact: 'high', impact_score: 85, category: 'micro-site', priority: 2,
   },
   {
-    title: 'Audit SkunkForms free plugin features vs WPForms free tier',
-    why: "Knowing the gap helps with content and roadmap decisions. Can turn findings into a feature comparison blog post.",
-    effort: 'medium', impact: 'medium', impact_score: 60, category: 'product', priority: 3,
+    title: 'Build wpcrmcost.com — CRM pricing comparison calculator',
+    why: 'Same play as the form cost site but for CRMs. Show real monthly cost at 500, 1000, 5000 contacts for HubSpot, ActiveCampaign, FluentCRM, and SkunkCRM. SkunkCRM wins the comparison at every tier. Rank for "WordPress CRM pricing" with zero content effort.',
+    effort: 'low', impact: 'high', impact_score: 80, category: 'micro-site', priority: 2,
   },
   {
-    title: 'Write Reddit community post about WordPress form builder frustrations',
-    why: "Reddit is our highest potential organic channel. A thoughtful post in r/Wordpress or r/webdev addressing form builder pain points drives traffic and trust.",
-    effort: 'low', impact: 'high', impact_score: 70, category: 'marketing', priority: 2,
+    title: 'Build a "WordPress plugin stack calculator" — show monthly SaaS spend vs WordPress plugins',
+    why: 'The whole Skunk pitch is "stop paying SaaS tax." Visualise it. Let someone enter their current tools (HubSpot, Typeform, Kajabi etc.) and show exactly what they are spending vs what the Skunk suite costs. Shareable, embeddable, goes viral in WP communities.',
+    effort: 'medium', impact: 'high', impact_score: 88, category: 'micro-site', priority: 1,
+  },
+
+  // ─── Mini SaaS / Standalone Products ─────────────────────────────────────────
+
+  {
+    title: 'Ship a free "WordPress form spam detector" — standalone tool',
+    why: 'Spam in contact forms is one of the most Googled WordPress problems. A free tool that analyses a form submission log (paste in) and scores spam likelihood builds goodwill and drives SkunkForms discovery. Can be a page on skunkforms.com/tools/spam-detector.',
+    effort: 'medium', impact: 'high', impact_score: 78, category: 'mini-saas', priority: 2,
   },
   {
-    title: 'Generate 10 new blog post ideas for skunkcrm.com/resources/',
-    why: "Content velocity is our main SEO lever right now. The resources section needs consistent new posts to build topical authority.",
-    effort: 'low', impact: 'medium', impact_score: 60, category: 'content', priority: 3,
+    title: 'Launch a free WordPress lead score calculator',
+    why: 'SkunkCRM angle: "not all leads are equal." Build a tool where someone defines their scoring criteria (job title, company size, pages visited) and we generate the scoring logic as a JSON snippet they can paste into SkunkCRM. Creates a tight loop from the tool to the product.',
+    effort: 'medium', impact: 'medium', impact_score: 70, category: 'mini-saas', priority: 3,
   },
   {
-    title: 'Run PageSpeed audit on SkunkForms and SkunkCRM landing pages',
-    why: "Core Web Vitals affect Google rankings. A quick audit tells us if there are quick wins that could boost SEO performance.",
-    effort: 'low', impact: 'medium', impact_score: 55, category: 'seo', priority: 3,
+    title: 'Build a "WordPress plugin conflict checker" tool',
+    why: 'Plugin conflicts are the #1 WordPress headache. A tool that takes two plugin slugs and checks their known conflict history (from the WordPress.org support forums via API) could get massive organic traction. Low build cost, high shareability, builds brand trust.',
+    effort: 'high', impact: 'high', impact_score: 82, category: 'mini-saas', priority: 2,
   },
   {
-    title: 'Research Skunk Global product pricing vs competitors',
-    why: "At $50/mo per product, we are significantly above market. Understanding where we sit vs WPForms ($199/yr), FluentCRM ($129/yr) etc. is critical for conversion.",
-    effort: 'low', impact: 'high', impact_score: 80, category: 'research', priority: 2,
+    title: 'Build a free "form abandonment estimator" — show the revenue leaking through bad forms',
+    why: 'Most businesses have no idea how much revenue their broken/ugly forms cost them. Build a calculator: "Your form gets X visits, converts at Y%, average order $Z — here is what you are losing." Output: a dollar figure and a CTA to SkunkForms. Compelling and shareable.',
+    effort: 'low', impact: 'high', impact_score: 83, category: 'mini-saas', priority: 1,
+  },
+
+  // ─── Chunkier Product Moves ───────────────────────────────────────────────────
+
+  {
+    title: 'Build a public Skunk product roadmap with upvoting — let users drive prioritisation',
+    why: 'Public roadmaps build trust, create content, and generate email signups. Every user who votes is a warm lead. Pairs perfectly with the "cofounder-level transparency" positioning. Can live at skunkglobal.com/roadmap — already exists but needs activation.',
+    effort: 'medium', impact: 'high', impact_score: 80, category: 'product', priority: 2,
   },
   {
-    title: 'Draft SkunkForms launch announcement for r/Wordpress',
-    why: "SkunkForms needs exposure. A well-crafted Show HN or r/Wordpress post when we launch could drive early adopters and feedback.",
-    effort: 'medium', impact: 'high', impact_score: 75, category: 'marketing', priority: 2,
+    title: 'Ship SkunkForms "Webhook Recipes" — pre-built webhook templates for Slack, Notion, Airtable',
+    why: 'The webhook feature exists but nobody knows what to do with it. 10 pre-built templates (e.g. "send form submission to Slack #leads", "add to Airtable CRM") turn a developer feature into a no-code power feature. Each template is also an SEO landing page.',
+    effort: 'medium', impact: 'high', impact_score: 79, category: 'product', priority: 2,
   },
   {
-    title: 'Build a simple onboarding wizard for new SkunkCRM installs',
-    why: "Users who don't activate key features within 3 days rarely do. A post-install wizard guiding them through their first contact and deal would improve retention.",
-    effort: 'high', impact: 'high', impact_score: 85, category: 'product', priority: 2,
+    title: 'Build a "Contact Form 7 migration wizard" — one-click import into SkunkForms',
+    why: 'CF7 has 5M+ active installs and is notoriously painful to extend. The importer code is already built at code/cf7-importer/. Ship it as a proper in-plugin wizard with a "migrate from CF7" CTA. This is the single best acquisition move for SkunkForms.',
+    effort: 'medium', impact: 'high', impact_score: 92, category: 'product', priority: 1,
   },
   {
-    title: 'Write \"WordPress CRM plugin: complete guide\" long-form post',
-    why: "This is a high-volume search term with commercial intent. A comprehensive 3000-word guide could rank and drive CRM plugin downloads.",
-    effort: 'high', impact: 'high', impact_score: 80, category: 'content', priority: 2,
+    title: 'Build SkunkForms "Form Analytics" — conversion rate, drop-off per field, time-to-complete',
+    why: 'No WordPress form plugin has decent built-in analytics. Showing users which fields cause abandonment is a Pro-tier killer feature. Build a lightweight JS snippet that fires on field blur and completion, stores to WP, renders in a dashboard panel.',
+    effort: 'high', impact: 'high', impact_score: 90, category: 'product', priority: 1,
   },
+
+  // ─── Creative Marketing ───────────────────────────────────────────────────────
+
+  {
+    title: 'Launch a "Skunk vs Big SaaS" campaign — honest teardown series',
+    why: 'Record a 5-min screen recording: "I cancelled my $X/month HubSpot and set this up in WordPress for $50/year." Post to YouTube, Reddit, LinkedIn. No production value needed — authenticity is the point. This is the Skunk brand in action.',
+    effort: 'medium', impact: 'high', impact_score: 85, category: 'marketing', priority: 2,
+  },
+  {
+    title: 'Write a "Founders Club" case study series — real users, real installs, real results',
+    why: 'Social proof is our biggest gap. Even 3-5 early installers with a short Q+A case study transforms the site. Reach out to the early downloader contacts already in SkunkCRM. A single authentic case study is worth 100 blog posts.',
+    effort: 'medium', impact: 'high', impact_score: 88, category: 'marketing', priority: 1,
+  },
+
 ];
 
 let added = 0;

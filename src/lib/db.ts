@@ -80,6 +80,13 @@ try {
   // Column already exists, ignore the error
 }
 
+// Add insight column to intel_items if it doesn't exist (migration)
+try {
+  db.exec(`ALTER TABLE intel_items ADD COLUMN insight TEXT`);
+} catch (error) {
+  // Column already exists, ignore the error
+}
+
 // Tasks table for Porter orchestration
 db.exec(`
   CREATE TABLE IF NOT EXISTS tasks (
@@ -302,7 +309,7 @@ export interface Task {
   session_id: string | null;
 }
 
-export function getAllTasks(filters?: { status?: string; agent?: string }): Task[] {
+export function getAllTasks(filters?: { status?: string; agent?: string; category?: string }): Task[] {
   let query = 'SELECT * FROM tasks';
   const conditions: string[] = [];
   const values: unknown[] = [];
@@ -310,6 +317,11 @@ export function getAllTasks(filters?: { status?: string; agent?: string }): Task
   if (filters?.status) {
     conditions.push('status = ?');
     values.push(filters.status);
+  }
+
+  if (filters?.category) {
+    conditions.push('category = ?');
+    values.push(filters.category);
   }
 
   if (filters?.agent) {
@@ -461,6 +473,13 @@ try {
   db.exec(`ALTER TABLE suggestions ADD COLUMN linear_url TEXT`);
 } catch { /* Column exists */ }
 
+// intel_id and source columns migration
+try {
+  db.exec(`ALTER TABLE suggestions ADD COLUMN intel_id TEXT`);
+} catch { /* Column exists */ }
+try {
+  db.exec(`ALTER TABLE suggestions ADD COLUMN source TEXT NOT NULL DEFAULT 'manual'`);
+} catch { /* Column exists */ }
 // Overnight runs table
 db.exec(`
   CREATE TABLE IF NOT EXISTS overnight_runs (
@@ -517,7 +536,7 @@ for (const [key, value] of Object.entries(defaultSettings)) {
 
 export interface IntelItem {
   id: string;
-  category: 'market' | 'competitor' | 'seo' | 'opportunity' | 'wordpress' | 'keyword';
+  category: 'market' | 'competitor' | 'seo' | 'opportunity' | 'wordpress' | 'keyword' | string;
   title: string;
   summary: string;
   url: string | null;
@@ -526,6 +545,8 @@ export interface IntelItem {
   created_at: number;
   read_at: number | null;
   archived_at?: number | null;
+  insight: string | null;
+  commented_at?: number | null;
 }
 
 export function getAllIntelItems(filters?: { category?: string; unread?: boolean; limit?: number; archived?: boolean }): IntelItem[] {
@@ -592,6 +613,13 @@ export function archiveAllIntelItems(): number {
   return result.changes;
 }
 
+export function markIntelCommented(id: string): void {
+  const now = Date.now();
+  // Mark as commented and also archive so it leaves the active feed
+  db.prepare('UPDATE intel_items SET commented_at = ?, archived_at = COALESCE(archived_at, ?), read_at = COALESCE(read_at, ?) WHERE id = ?')
+    .run(now, now, now, id);
+}
+
 // ─── Suggestion types & functions ─────────────────────────────────────────────
 
 export interface Suggestion {
@@ -601,20 +629,22 @@ export interface Suggestion {
   effort: 'low' | 'medium' | 'high';
   impact: 'low' | 'medium' | 'high';
   impact_score: number;
-  category: 'content' | 'seo' | 'code' | 'marketing' | 'research' | 'product';
+  category: 'content' | 'seo' | 'code' | 'marketing' | 'research' | 'product' | string;
   source_intel_ids: string;
   status: 'pending' | 'approved' | 'dismissed' | 'queued' | 'in_progress' | 'completed';
   priority: number;
   created_at: number;
   actioned_at: number | null;
   notes: string | null;
+  intel_id: string | null;
+  source: string;
   report_id: string | null;
   linear_issue_id?: string | null;
   linear_identifier?: string | null;
   linear_url?: string | null;
 }
 
-export function getAllSuggestions(filters?: { status?: string; limit?: number }): Suggestion[] {
+export function getAllSuggestions(filters?: { status?: string; limit?: number; category?: string }): Suggestion[] {
   let query = 'SELECT * FROM suggestions';
   const conditions: string[] = [];
   const values: unknown[] = [];
@@ -622,6 +652,11 @@ export function getAllSuggestions(filters?: { status?: string; limit?: number })
   if (filters?.status) {
     conditions.push('status = ?');
     values.push(filters.status);
+  }
+
+  if (filters?.category) {
+    conditions.push('category = ?');
+    values.push(filters.category);
   }
 
   if (conditions.length > 0) query += ' WHERE ' + conditions.join(' AND ');
@@ -866,9 +901,12 @@ db.exec(`
     completed_at INTEGER,
     rejected_at INTEGER,
     notes TEXT
+    intel_id TEXT,
+    source TEXT DEFAULT 'manual'
   );
   CREATE INDEX IF NOT EXISTS idx_proposals_status ON work_proposals(status);
   CREATE INDEX IF NOT EXISTS idx_proposals_proposed_at ON work_proposals(proposed_at);
+  CREATE INDEX IF NOT EXISTS idx_proposals_intel_id ON work_proposals(intel_id);
 `);
 
 export interface WorkProposal {
@@ -880,7 +918,7 @@ export interface WorkProposal {
   why: string | null;
   effort: 'low' | 'medium' | 'high';
   repo: string | null;
-  status: 'proposed' | 'approved' | 'rejected' | 'in_progress' | 'done';
+  status: 'proposed' | 'idea' | 'backlog' | 'queued' | 'approved' | 'in_progress' | 'in_review' | 'completed' | 'rejected' | 'dismissed';
   branch_name: string | null;
   pr_url: string | null;
   pr_number: number | null;
@@ -889,9 +927,12 @@ export interface WorkProposal {
   completed_at: number | null;
   rejected_at: number | null;
   notes: string | null;
+  intel_id: string | null;
+  source: string;
+  category: string;
 }
 
-export function getAllWorkProposals(filters?: { status?: string }): WorkProposal[] {
+export function getAllWorkProposals(filters?: { status?: string; category?: string }): WorkProposal[] {
   let query = 'SELECT * FROM work_proposals';
   const conditions: string[] = [];
   const values: unknown[] = [];
@@ -899,6 +940,11 @@ export function getAllWorkProposals(filters?: { status?: string }): WorkProposal
   if (filters?.status) {
     conditions.push('status = ?');
     values.push(filters.status);
+  }
+
+  if (filters?.category) {
+    conditions.push('category = ?');
+    values.push(filters.category);
   }
 
   if (conditions.length > 0) {
@@ -919,8 +965,8 @@ export function getWorkProposalByLinearId(linearIssueId: string): WorkProposal |
 
 export function createWorkProposal(proposal: Omit<WorkProposal, 'proposed_at' | 'approved_at' | 'completed_at' | 'rejected_at'>): void {
   db.prepare(`
-    INSERT INTO work_proposals (id, linear_issue_id, linear_identifier, linear_url, title, why, effort, repo, status, branch_name, pr_url, pr_number, notes)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO work_proposals (id, linear_issue_id, linear_identifier, linear_url, title, why, effort, repo, status, branch_name, pr_url, pr_number, notes, intel_id, source)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     proposal.id,
     proposal.linear_issue_id,
@@ -934,7 +980,9 @@ export function createWorkProposal(proposal: Omit<WorkProposal, 'proposed_at' | 
     proposal.branch_name,
     proposal.pr_url,
     proposal.pr_number,
-    proposal.notes
+    proposal.notes,
+    proposal.intel_id,
+    proposal.source
   );
 }
 
@@ -1043,6 +1091,29 @@ export function getAllProactivitySettings(): Record<string, string> {
   return result;
 }
 
+// ─── Settings Table ───────────────────────────────────────────────────────────
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    updated_at TEXT DEFAULT (datetime('now'))
+  );
+`);
+
+export function getSetting(key: string): string | null {
+  const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key) as { value: string } | undefined;
+  return row ? row.value : null;
+}
+
+export function setSetting(key: string, value: string): void {
+  db.prepare('INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES (?, ?, datetime(\'now\'))').run(key, value);
+}
+
+export function deleteSetting(key: string): void {
+  db.prepare('DELETE FROM settings WHERE key = ?').run(key);
+}
+
 // ─── Version Summary Cache ────────────────────────────────────────────────────
 
 db.exec(`
@@ -1091,3 +1162,7 @@ export function saveBrief(id: string, brief: any): void {
 }
 
 export default db;
+
+export function getWorkProposalByIntelId(intelId: string): WorkProposal | undefined {
+  return db.prepare('SELECT * FROM work_proposals WHERE intel_id = ?').get(intelId) as WorkProposal | undefined;
+}

@@ -11,7 +11,7 @@ const Database = require('better-sqlite3');
 const path = require('path');
 const os = require('os');
 
-const dataDir = process.env.SUPERCLAW_DATA_DIR || path.join(os.homedir(), '.superclaw');
+const dataDir = process.env.SUPERCLAW_DATA_DIR || '/home/mike/.superclaw';
 const db = new Database(path.join(dataDir, 'superclaw.db'));
 
 try {

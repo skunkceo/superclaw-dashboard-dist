@@ -20,7 +20,7 @@ const LINEAR_API_URL = 'https://api.linear.app/graphql';
 // Load Linear config
 function getLinearConfig() {
   // Check database first
-  const dataDir = process.env.SUPERCLAW_DATA_DIR || join(process.env.HOME || '/root', '.superclaw');
+  const dataDir = process.env.SUPERCLAW_DATA_DIR || '/home/mike/.superclaw';
   const dbPath = join(dataDir, 'superclaw.db');
   
   if (existsSync(dbPath)) {
@@ -114,7 +114,7 @@ async function main() {
   console.log(`Found ${candidates.length} candidate issue(s) (priority 1-3)`);
 
   // Open database
-  const dataDir = process.env.SUPERCLAW_DATA_DIR || join(process.env.HOME || '/root', '.superclaw');
+  const dataDir = process.env.SUPERCLAW_DATA_DIR || '/home/mike/.superclaw';
   const dbPath = join(dataDir, 'superclaw.db');
   const db = new Database(dbPath);
 

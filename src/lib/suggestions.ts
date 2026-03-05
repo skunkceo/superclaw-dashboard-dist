@@ -160,6 +160,8 @@ export async function generateSuggestionsFromIntel(): Promise<GenerateResult> {
         linear_issue_id: null,
         linear_identifier: null,
         linear_url: null,
+        intel_id: item.id,
+        source: 'intel',
       });
 
       result.fromIntel++;
@@ -179,6 +181,8 @@ export async function generateSuggestionsFromIntel(): Promise<GenerateResult> {
       linear_issue_id: null,
       linear_identifier: null,
       linear_url: null,
+      intel_id: null,
+      source: 'manual',
     });
     result.standing++;
   }

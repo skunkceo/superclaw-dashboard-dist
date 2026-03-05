@@ -17,19 +17,20 @@ export interface WidgetLayout {
 }
 
 export const WIDGET_REGISTRY: WidgetDefinition[] = [
-  { id: 'health',         name: 'Status Bar',       description: 'Gateway health and model info',           defaultEnabled: true,  defaultOrder: 0,  defaultSize: 'full' },
-  { id: 'files',          name: 'File Shortcuts',   description: 'Quick links to key workspace files',      defaultEnabled: true,  defaultOrder: 1,  defaultSize: 'full' },
-  { id: 'live-agents',    name: 'Live Agents',      description: 'Active sub-agents with spawn and control', defaultEnabled: true,  defaultOrder: 2,  defaultSize: 'half' },
-  { id: 'proactivity',    name: 'Bridge', description: 'Strategic intelligence hub',          defaultEnabled: true,  defaultOrder: 3,  defaultSize: 'half' },
-  { id: 'token-usage',    name: 'Token Usage',      description: 'API usage and cost tracking',             defaultEnabled: true,  defaultOrder: 4,  defaultSize: 'half' },
-  { id: 'work-log',       name: 'Work Log',         description: 'Recent agent activity log',               defaultEnabled: true,  defaultOrder: 5,  defaultSize: 'half' },
-  { id: 'skills',         name: 'Skills',           description: 'Enabled capabilities',                    defaultEnabled: true,  defaultOrder: 6,  defaultSize: 'half' },
-  { id: 'linear-issues',  name: 'Linear Issues',    description: 'Active AI team issues and count',         defaultEnabled: false, defaultOrder: 7,  defaultSize: 'half' },
-  { id: 'cron-jobs',      name: 'Cron Jobs',        description: 'Next scheduled runs',                     defaultEnabled: false, defaultOrder: 8,  defaultSize: 'half' },
-  { id: 'recent-reports', name: 'Recent Reports',   description: 'Latest overnight reports',                defaultEnabled: false, defaultOrder: 9,  defaultSize: 'full' },
-  { id: 'site-health',    name: 'Site Health',      description: 'HTTP status for all Skunk sites',         defaultEnabled: false, defaultOrder: 10, defaultSize: 'half' },
-  { id: 'github-activity',name: 'GitHub Activity',  description: 'Recent PRs and commits across Skunk repos', defaultEnabled: false, defaultOrder: 11, defaultSize: 'half' },
-  { id: 'intel-feed',     name: 'Intel Feed',       description: 'Market signals and competitor monitoring', defaultEnabled: false, defaultOrder: 12, defaultSize: 'half' },
+  { id: 'health',               name: 'Status Bar',           description: 'Gateway health and model info',           defaultEnabled: true,  defaultOrder: 0,  defaultSize: 'full' },
+  { id: 'files',                name: 'File Shortcuts',       description: 'Quick links to key workspace files',      defaultEnabled: true,  defaultOrder: 1,  defaultSize: 'full' },
+  { id: 'agent-command-center', name: 'Agent Command Center', description: 'Real-time agents + activity in one view (SSE-powered)', defaultEnabled: true, defaultOrder: 2,  defaultSize: 'full' },
+  { id: 'proactivity',          name: 'Bridge',               description: 'Strategic intelligence hub',               defaultEnabled: true,  defaultOrder: 4,  defaultSize: 'half' },
+  { id: 'token-usage',          name: 'Token Usage',          description: 'API usage and cost tracking',              defaultEnabled: true,  defaultOrder: 6,  defaultSize: 'half' },
+  { id: 'work-log',             name: 'Work Log',             description: 'Recent agent activity log',                defaultEnabled: false, defaultOrder: 7,  defaultSize: 'half' },
+  { id: 'skills',               name: 'Skills',               description: 'Enabled capabilities',                     defaultEnabled: true,  defaultOrder: 8,  defaultSize: 'half' },
+  { id: 'linear-issues',        name: 'Linear Issues',        description: 'Active AI team issues and count',          defaultEnabled: false, defaultOrder: 9,  defaultSize: 'half' },
+  { id: 'cron-jobs',            name: 'Cron Jobs',            description: 'Next scheduled runs',                      defaultEnabled: false, defaultOrder: 10, defaultSize: 'half' },
+  { id: 'recent-reports',       name: 'Recent Reports',       description: 'Latest overnight reports',                 defaultEnabled: false, defaultOrder: 11, defaultSize: 'full' },
+  { id: 'site-health',          name: 'Site Health',          description: 'HTTP status for all Skunk sites',          defaultEnabled: false, defaultOrder: 12, defaultSize: 'half' },
+  { id: 'github-activity',      name: 'GitHub Activity',      description: 'Recent PRs and commits across Skunk repos', defaultEnabled: false, defaultOrder: 13, defaultSize: 'half' },
+  { id: 'intel-feed',           name: 'Intel Feed',           description: 'Market signals and competitor monitoring', defaultEnabled: false, defaultOrder: 14, defaultSize: 'half' },
+  { id: 'github-commits',       name: 'GitHub Commits',       description: 'Commit activity across all Skunk repos',   defaultEnabled: true,  defaultOrder: 5,  defaultSize: 'full' },
 ];
 
 const STORAGE_KEY = 'superclaw-dashboard-layout';

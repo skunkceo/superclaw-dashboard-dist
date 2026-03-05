@@ -15,7 +15,7 @@ const path = require('path');
 const os = require('os');
 const { randomUUID } = require('crypto');
 
-const dataDir = process.env.SUPERCLAW_DATA_DIR || path.join(os.homedir(), '.superclaw');
+const dataDir = process.env.SUPERCLAW_DATA_DIR || '/home/mike/.superclaw';
 const db = new Database(path.join(dataDir, 'superclaw.db'));
 
 const [,, command, ...args] = process.argv;

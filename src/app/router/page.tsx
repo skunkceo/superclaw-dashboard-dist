@@ -270,12 +270,12 @@ export default function RouterPage() {
                         <div className="mb-3">
                           <div className="text-xs text-zinc-500 mb-1">When:</div>
                           <div className="flex flex-wrap gap-2">
-                            {rule.conditions.channels?.map(ch => (
+                            {(Array.isArray(rule.conditions.channels) ? rule.conditions.channels : [])?.map(ch => (
                               <span key={ch} className="px-2 py-1 bg-blue-500/20 text-blue-400 text-xs rounded">
                                 {ch}
                               </span>
                             ))}
-                            {rule.conditions.keywords?.map(kw => (
+                            {(Array.isArray(rule.conditions.keywords) ? rule.conditions.keywords : [])?.map(kw => (
                               <span key={kw} className="px-2 py-1 bg-purple-500/20 text-purple-400 text-xs rounded">
                                 {kw}
                               </span>

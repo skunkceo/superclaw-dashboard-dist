@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import ActivityHeatmap from '@/components/ActivityHeatmap';
+import GitHubCommitHeatmap from '@/components/GitHubCommitHeatmap';
 
 interface Agent {
   label: string;
@@ -25,6 +25,8 @@ interface AgentSession {
   lastActive: string;
   messageCount: number;
   model: string;
+  task?: string;
+  branch?: string;
 }
 
 interface Team {
@@ -76,9 +78,7 @@ function AgentCard({ agent, session, isLead }: { agent: Agent; session?: AgentSe
   return (
     <Link
       href={`/agents/${agent.label}`}
-      className={`block bg-zinc-900 border rounded-xl transition-all hover:border-zinc-700 ${
-        isLead ? 'p-6 border-2' : 'p-5'
-      } ${
+      className={`block bg-zinc-900 border border-zinc-800 rounded-xl transition-all hover:border-zinc-700 p-4 ${
         status === 'active'
           ? 'border-orange-500/30 hover:border-orange-500/50'
           : isLead
@@ -86,11 +86,11 @@ function AgentCard({ agent, session, isLead }: { agent: Agent; session?: AgentSe
           : 'border-zinc-800 hover:border-zinc-700'
       }`}
     >
-      <div className="flex items-start gap-4">
+      <div className="flex items-start gap-3">
         {/* Colored Avatar */}
         <div className="relative flex-shrink-0">
           <div 
-            className={`w-12 h-12 rounded-full flex items-center justify-center border-2 ${
+            className={`w-8 h-8 rounded flex items-center justify-center border ${
               status === 'active' ? 'border-orange-500/60' : 'border-zinc-700'
             }`}
             style={{ backgroundColor: avatar.bgColor }}
@@ -101,8 +101,8 @@ function AgentCard({ agent, session, isLead }: { agent: Agent; session?: AgentSe
           </div>
           {/* Status dot */}
           {status === 'active' && (
-            <span className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-green-400 rounded-full border-2 border-zinc-900">
-              <span className="absolute inset-0 bg-green-400 rounded-full animate-ping opacity-75"></span>
+            <span className="absolute -bottom-0.5 -right-0.5 w-1.5 h-1.5 bg-orange-400 rounded-full">
+              <span className="absolute inset-0 bg-orange-500 rounded-full animate-ping opacity-75"></span>
             </span>
           )}
         </div>
@@ -119,21 +119,34 @@ function AgentCard({ agent, session, isLead }: { agent: Agent; session?: AgentSe
               </span>
             )}
             {status === 'active' && (
-              <span className="flex-shrink-0 text-[10px] text-green-400 font-medium">Active</span>
+              <span className="flex-shrink-0 text-[10px] text-zinc-400">Active</span>
             )}
           </div>
           
-          {/* Last Activity */}
-          {agent.lastActivity && (
+          {/* Active Task or Last Activity */}
+          {status === 'active' && session?.task ? (
+            <div className="mt-1">
+              <p className="text-xs text-zinc-400 truncate">
+                Working on: {session.task}
+              </p>
+              {session.branch && (
+                <span className="inline-block mt-1 px-1.5 py-0.5 bg-zinc-800 text-zinc-500 text-[10px] font-mono rounded">
+                  {session.branch}
+                </span>
+              )}
+            </div>
+          ) : status === 'active' && !session?.task ? (
+            <p className="text-xs text-orange-400 mt-1">Working...</p>
+          ) : agent.lastActivity ? (
             <p className="text-xs text-zinc-500 mt-1 truncate">
               Last: {agent.lastActivity.summary} — {formatActivityTime(agent.lastActivity.timestamp)}
             </p>
-          )}
+          ) : null}
           
           {/* Team badge for members */}
           {!isLead && (
             <div className="mt-2 flex items-center gap-2">
-              <span className="px-2 py-1 bg-zinc-800 text-zinc-400 text-[10px] rounded">
+              <span className="px-2 py-1 bg-zinc-800 text-zinc-500 text-[10px] rounded">
                 Team Member
               </span>
             </div>
@@ -156,7 +169,8 @@ export default function AgentsPage() {
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
 
-  useEffect(() => {
+  // Fetch agents list
+  const fetchAgents = () => {
     fetch('/api/agents/list')
       .then(res => res.json())
       .then(data => {
@@ -166,6 +180,20 @@ export default function AgentsPage() {
         setLoading(false);
       })
       .catch(() => setLoading(false));
+  };
+
+  // Initial fetch
+  useEffect(() => {
+    fetchAgents();
+  }, []);
+
+  // Live polling every 10 seconds
+  useEffect(() => {
+    const interval = setInterval(() => {
+      fetchAgents();
+    }, 10000);
+
+    return () => clearInterval(interval);
   }, []);
 
   if (loading) {
@@ -174,7 +202,7 @@ export default function AgentsPage() {
         <div className="max-w-6xl mx-auto">
           <div className="animate-pulse">
             <div className="h-8 bg-zinc-800 rounded w-48 mb-6" />
-            <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
+            <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-3">
               {[1,2,3,4,5,6].map(i => <div key={i} className="h-36 bg-zinc-800 rounded-xl" />)}
             </div>
           </div>
@@ -187,13 +215,13 @@ export default function AgentsPage() {
     return (
       <div className="min-h-screen bg-zinc-950 text-white p-4 sm:p-8">
         <div className="max-w-6xl mx-auto">
-          <h1 className="text-3xl font-bold mb-6">Agents</h1>
+          <h1 className="text-sm font-semibold text-white mb-6">Agents</h1>
           <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-8 text-center">
             <h2 className="text-xl font-semibold mb-2">No agents configured</h2>
             <p className="text-zinc-400 mb-6">
               Run <code className="px-2 py-1 bg-zinc-800 rounded text-orange-400">superclaw setup agents</code> to get started
             </p>
-            <Link href="https://docs.openclaw.ai/superclaw/setup" target="_blank" className="inline-block px-4 py-2 bg-orange-500 hover:bg-orange-600 rounded-lg font-medium transition-colors">
+            <Link href="/guides/setup" className="inline-block px-4 py-2 bg-orange-500 hover:bg-orange-600 rounded-lg font-medium transition-colors">
               View Setup Guide
             </Link>
           </div>
@@ -219,9 +247,7 @@ export default function AgentsPage() {
       setShowNewAgent(false);
       setNewAgentForm({ name: '', label: '', description: '' });
       // Refresh agents list
-      const listRes = await fetch('/api/agents/list');
-      const listData = await listRes.json();
-      setAgents(listData.agents || []);
+      fetchAgents();
     } catch (err) {
       setCreateError(err instanceof Error ? err.message : 'Unknown error');
     } finally {
@@ -234,10 +260,10 @@ export default function AgentsPage() {
       <div className="max-w-6xl mx-auto">
         <div className="flex items-center justify-between mb-8">
           <div>
-            <h1 className="text-2xl font-bold">Agents</h1>
-            <p className="text-zinc-500 mt-1 text-sm">
+            <h1 className="text-sm font-semibold text-white">Agents</h1>
+            <p className="text-xs text-zinc-500 mt-1">
               {agents.length} configured
-              {activeCount > 0 && <span className="text-green-400 ml-1.5">· {activeCount} active</span>}
+              {activeCount > 0 && <span className="text-orange-400 ml-1.5">· {activeCount} active</span>}
             </p>
           </div>
           <div className="flex items-center gap-3">
@@ -257,7 +283,7 @@ export default function AgentsPage() {
         {/* Add New Agent Modal */}
         {showNewAgent && (
           <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-            <div className="bg-zinc-900 border border-zinc-700 rounded-2xl p-6 w-full max-w-md">
+            <div className="bg-zinc-900 border border-zinc-700 rounded-xl p-6 w-full max-w-md">
               <h3 className="text-lg font-semibold text-white mb-4">Add New Agent</h3>
               <div className="space-y-4">
                 <div>
@@ -325,8 +351,8 @@ export default function AgentsPage() {
           
           return (
             <div className="mb-8">
-              <h2 className="text-lg font-semibold text-white mb-4">Working now</h2>
-              <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
+              <h2 className="text-xs text-zinc-500 uppercase tracking-wider mb-4">Working now</h2>
+              <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-3">
                 {activeAgents.map(agent => (
                   <AgentCard
                     key={agent.label}
@@ -341,11 +367,11 @@ export default function AgentsPage() {
 
         {/* Team Activity Heatmap */}
         <div className="bg-zinc-900 rounded-xl border border-zinc-800 p-6 mb-6">
-          <ActivityHeatmap agentLabel="all" title="Team Activity" fullWidth />
+          <GitHubCommitHeatmap />
         </div>
 
         <div className="mb-6">
-          <h2 className="text-lg font-semibold text-white">Agent Teams</h2>
+          <h2 className="text-xs text-zinc-500 uppercase tracking-wider">Agent Teams</h2>
           <p className="text-zinc-500 text-sm mt-1">Organized by functional area</p>
         </div>
 
@@ -362,7 +388,7 @@ export default function AgentsPage() {
             return (
               <div key={team.id} className="space-y-4">
                 <div className="flex items-center gap-3">
-                  <h3 className="text-base font-semibold text-white">{team.name}</h3>
+                  <h3 className="text-sm font-semibold text-white">{team.name}</h3>
                   <span className="text-sm text-zinc-500">
                     Lead: {leadAgent.name}
                   </span>
@@ -379,7 +405,7 @@ export default function AgentsPage() {
 
                 {/* Member Cards */}
                 {memberAgents.length > 0 && (
-                  <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4 pl-6 border-l-2 border-zinc-800">
+                  <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-3 pl-6 border-l-2 border-zinc-800">
                     {memberAgents.map(agent => (
                       <AgentCard
                         key={agent.label}
@@ -404,8 +430,8 @@ export default function AgentsPage() {
 
             return (
               <div className="space-y-4">
-                <h3 className="text-base font-semibold text-zinc-400">Unassigned</h3>
-                <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
+                <h3 className="text-xs text-zinc-500 uppercase tracking-wider">Unassigned</h3>
+                <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-3">
                   {unassigned.map(agent => (
                     <AgentCard
                       key={agent.label}

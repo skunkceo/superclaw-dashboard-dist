@@ -19,7 +19,6 @@ export async function GET(request: NextRequest) {
         }
         return b.created_at - a.created_at;
       })
-      .slice(0, 10)
       .map(item => ({
         id: item.id,
         category: item.category,
@@ -28,6 +27,7 @@ export async function GET(request: NextRequest) {
         url: item.url,
         relevance_score: item.relevance_score,
         created_at: item.created_at,
+        insight: item.insight || null,
       }));
 
     // Fetch top 5 pending/queued suggestions, sorted by priority and impact

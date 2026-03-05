@@ -185,7 +185,7 @@ export default function AgentDetailPage() {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
               </svg>
             </Link>
-            <h1 className="text-3xl font-bold">{agent.name}</h1>
+            <h1 className="text-sm font-semibold text-white">{agent.name}</h1>
             <span className={`px-2 py-1 rounded text-xs ml-auto ${
               agent.status === 'active' ? 'bg-green-500/20 text-green-400' :
               agent.status === 'waiting' ? 'bg-yellow-500/20 text-yellow-400' :
@@ -214,7 +214,7 @@ export default function AgentDetailPage() {
         <div className="flex flex-col md:flex-row gap-4 mb-6">
           {/* Heatmap - takes most space */}
           <div className="flex-1 min-w-0 bg-zinc-900 rounded-xl border border-zinc-800 p-4 sm:p-6">
-            <ActivityHeatmap agentLabel={label} />
+            <ActivityHeatmap agentLabel={label} title="Agent Activity" />
           </div>
           {/* Stats - fixed width column on desktop, row of cards on mobile */}
           <div className="flex flex-row md:flex-col gap-3 md:w-48">

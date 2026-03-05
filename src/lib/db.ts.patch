@@ -1,0 +1,26 @@
+--- a/src/lib/db.ts
++++ b/src/lib/db.ts
+@@ -919,11 +919,12 @@ export interface WorkProposal {
+   notes: string | null;
+   intel_id: string | null;
+   source: string;
++  category: string;
+ }
+ 
+-export function getAllWorkProposals(filters?: { status?: string }): WorkProposal[] {
++export function getAllWorkProposals(filters?: { status?: string; category?: string }): WorkProposal[] {
+   let query = 'SELECT * FROM work_proposals';
+   const conditions: string[] = [];
+   const values: unknown[] = [];
+@@ -933,6 +934,11 @@ export function getAllWorkProposals(filters?: { status?: string }): WorkProposa
+     values.push(filters.status);
+   }
+ 
++  if (filters?.category) {
++    conditions.push('category = ?');
++    values.push(filters.category);
++  }
++
+   if (conditions.length > 0) {
+     query += ' WHERE ' + conditions.join(' AND ');
+   }

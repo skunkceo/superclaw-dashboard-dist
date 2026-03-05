@@ -46,27 +46,10 @@ export function Header({ healthStatus = 'healthy' }: HeaderProps) {
       .catch(() => {});
   }, []);
 
-  const [proactivityStats, setProactivityStats] = useState<{ unread: number; pending: number } | null>(null);
-
-  useEffect(() => {
-    // Check for unread intel / pending suggestions for badge
-    Promise.all([
-      fetch('/api/intel?stats=true').then(r => r.ok ? r.json() : null).catch(() => null),
-      fetch('/api/suggestions?stats=true').then(r => r.ok ? r.json() : null).catch(() => null),
-    ]).then(([intel, sug]) => {
-      if (intel || sug) {
-        setProactivityStats({
-          unread: intel?.unread || 0,
-          pending: sug?.pending || 0,
-        });
-      }
-    });
-  }, []);
-
   const navItems: Array<{ href: string; label: string; badge?: number }> = [
     { href: '/', label: 'Dashboard' },
     { href: '/agents', label: 'Agents' },
-    { href: '/bridge', label: 'Bridge', badge: proactivityStats ? proactivityStats.pending + proactivityStats.unread : 0 },
+    { href: '/bridge', label: 'Bridge' },
     { href: '/reports', label: 'Reports' },
     { href: '/pulse', label: 'Traffic' },
   ];
@@ -278,6 +261,16 @@ export function Header({ healthStatus = 'healthy' }: HeaderProps) {
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4" />
                       </svg>
                       Versions
+                    </Link>
+                    <Link
+                      href="/guides"
+                      className="flex items-center gap-2 px-4 py-2.5 text-sm text-zinc-300 hover:bg-zinc-700/50"
+                      onClick={() => setShowUserMenu(false)}
+                    >
+                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+                      </svg>
+                      Guides
                     </Link>
                     {hasRole('admin') && (
                       <Link

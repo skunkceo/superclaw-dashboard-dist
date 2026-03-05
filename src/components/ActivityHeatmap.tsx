@@ -41,11 +41,11 @@ function getIntensityClass(count: number, maxCount: number): string {
   const intensity = Math.ceil((count / Math.max(maxCount, 1)) * 4);
 
   switch (intensity) {
-    case 1: return 'bg-green-900';
-    case 2: return 'bg-green-700';
-    case 3: return 'bg-green-500';
-    case 4: return 'bg-green-400';
-    default: return 'bg-green-400';
+    case 1: return 'bg-orange-950';
+    case 2: return 'bg-orange-800';
+    case 3: return 'bg-orange-500';
+    case 4: return 'bg-orange-400';
+    default: return 'bg-orange-400';
   }
 }
 

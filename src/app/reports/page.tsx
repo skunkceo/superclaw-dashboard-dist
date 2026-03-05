@@ -85,10 +85,14 @@ function GroupSeparator({ label, ts, type, count }: { label: string; ts: number;
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function ReportsPage() {
+  // Reset scroll position on mount (unless navigating to anchor/fragment)
+  useEffect(() => {
+    if (!window.location.hash) {
+      window.scrollTo(0, 0);
+    }
+  }, []);
   const [reports, setReports] = useState<Report[]>([]);
   const [loading, setLoading] = useState(true);
-  const [typeFilter, setTypeFilter] = useState('all');
-  const [searchQuery, setSearchQuery] = useState('');
   const [groupBy, setGroupBy] = useState<'date' | 'type'>('date');
 
   const fetchReports = useCallback(() => {
@@ -101,10 +105,7 @@ export default function ReportsPage() {
 
   useEffect(() => { fetchReports(); }, [fetchReports]);
 
-  const filtered = reports
-    .filter(r => typeFilter === 'all' || r.type === typeFilter)
-    .filter(r => searchQuery === '' || r.title.toLowerCase().includes(searchQuery.toLowerCase()));
-  const reportTypes = Array.from(new Set(reports.map(r => r.type)));
+  const filtered = reports;
 
   // Group by date or type
   const grouped: { label: string; key: string; ts: number; type?: string; reports: Report[] }[] = [];
@@ -181,65 +182,6 @@ export default function ReportsPage() {
             </button>
           </div>
         </div>
-
-        {/* Search bar */}
-        <div className="mb-4">
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search reports by title..."
-            className="w-full px-4 py-2.5 bg-zinc-900 border border-zinc-800 rounded-lg text-sm text-zinc-300 placeholder-zinc-600 focus:outline-none focus:border-zinc-700 focus:bg-zinc-900/80 transition-colors"
-          />
-        </div>
-
-        {/* Type filters */}
-        {reportTypes.length > 1 && (
-          <div className="flex gap-2 mb-6 flex-wrap">
-            <button
-              onClick={() => setTypeFilter('all')}
-              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all relative ${
-                typeFilter === 'all' 
-                  ? 'bg-zinc-800 text-white' 
-                  : 'text-zinc-500 hover:text-zinc-300'
-              }`}
-            >
-              All reports ({reports.length})
-              {typeFilter === 'all' && (
-                <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-zinc-400 rounded-full" />
-              )}
-            </button>
-            {reportTypes.map(type => {
-              const cfg = getTypeConfig(type);
-              const isActive = typeFilter === type;
-              const borderColor = cfg.badge.match(/border-(\w+-\d+\/\d+)/)?.[1] || 'zinc-400';
-              return (
-                <button
-                  key={type}
-                  onClick={() => setTypeFilter(type)}
-                  className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all relative ${
-                    isActive 
-                      ? 'bg-zinc-800 text-white' 
-                      : 'text-zinc-500 hover:text-zinc-300'
-                  }`}
-                >
-                  {cfg.label} ({reports.filter(r => r.type === type).length})
-                  {isActive && (
-                    <div className={`absolute bottom-0 left-0 right-0 h-0.5 rounded-full ${
-                      type === 'sprint' ? 'bg-orange-400' :
-                      type === 'research' ? 'bg-blue-400' :
-                      type === 'seo' ? 'bg-green-400' :
-                      type === 'competitor' ? 'bg-red-400' :
-                      type === 'content' ? 'bg-purple-400' :
-                      type === 'intelligence' ? 'bg-yellow-400' :
-                      'bg-zinc-400'
-                    }`} />
-                  )}
-                </button>
-              );
-            })}
-          </div>
-        )}
 
         {/* Inbox */}
         {loading ? (

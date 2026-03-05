@@ -4,7 +4,7 @@ import { getAllWorkProposals, createWorkProposal, WorkProposal } from '@/lib/db'
 import { randomUUID } from 'crypto';
 
 /**
- * GET /api/bridge/proposals?status=proposed|approved|in_progress|done|rejected
+ * GET /api/bridge/proposals?status=idea|backlog|queued|in_progress|in_review|completed|rejected
  * Returns proposals grouped by status or filtered by status
  */
 export async function GET(request: NextRequest) {
@@ -15,24 +15,34 @@ export async function GET(request: NextRequest) {
 
   try {
     const status = request.nextUrl.searchParams.get('status');
+    const category = request.nextUrl.searchParams.get('category');
     
-    let proposals: WorkProposal[];
-    if (status) {
-      proposals = getAllWorkProposals({ status });
-    } else {
-      // Return all active proposals (proposed + approved + in_progress)
-      const proposed = getAllWorkProposals({ status: 'proposed' });
-      const approved = getAllWorkProposals({ status: 'approved' });
-      const inProgress = getAllWorkProposals({ status: 'in_progress' });
-      
-      return NextResponse.json({
-        proposed,
-        approved,
-        in_progress: inProgress,
-      });
+    if (status || category) {
+      const filters: { status?: string; category?: string } = {};
+      if (status) filters.status = status;
+      if (category) filters.category = category;
+      const proposals = getAllWorkProposals(filters);
+      return NextResponse.json({ proposals });
     }
-
-    return NextResponse.json({ proposals });
+    
+    // Return all proposals grouped by status
+    const idea = getAllWorkProposals({ status: 'idea' });
+    const backlog = getAllWorkProposals({ status: 'backlog' });
+    const queued = getAllWorkProposals({ status: 'queued' });
+    const inProgress = getAllWorkProposals({ status: 'in_progress' });
+    const inReview = getAllWorkProposals({ status: 'in_review' });
+    const completed = getAllWorkProposals({ status: 'completed' });
+    const rejected = getAllWorkProposals({ status: 'rejected' });
+    
+    return NextResponse.json({
+      idea,
+      backlog,
+      queued,
+      in_progress: inProgress,
+      in_review: inReview,
+      completed,
+      rejected,
+    });
   } catch (error) {
     console.error('Failed to fetch work proposals:', error);
     return NextResponse.json({ error: 'Failed to fetch proposals' }, { status: 500 });
@@ -42,7 +52,7 @@ export async function GET(request: NextRequest) {
 /**
  * POST /api/bridge/proposals
  * Create a new work proposal
- * Body: { linear_issue_id?, linear_identifier?, linear_url?, title, why?, effort?, repo? }
+ * Body: { linear_issue_id?, linear_identifier?, linear_url?, title, why?, effort?, repo?, status? }
  */
 export async function POST(request: Request) {
   const currentUser = await getCurrentUser();
@@ -60,7 +70,10 @@ export async function POST(request: Request) {
       why,
       effort = 'medium',
       repo,
+      status = 'idea',
       notes,
+      intel_id,
+      source = 'manual',
     } = body;
 
     if (!title) {
@@ -77,11 +90,14 @@ export async function POST(request: Request) {
       why: why || null,
       effort: effort as 'low' | 'medium' | 'high',
       repo: repo || null,
-      status: 'proposed',
+      status: status as WorkProposal['status'],
       branch_name: null,
       pr_url: null,
       pr_number: null,
       notes: notes || null,
+      intel_id: intel_id || null,
+      source: source,
+      category: (body.category || 'uncategorised') as WorkProposal['category'],
     };
 
     createWorkProposal(proposal);

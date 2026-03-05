@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import fs from 'fs';
 import path from 'path';
 import { getOpenClawWorkspace } from '@/lib/workspace';
+import db from '@/lib/db';
 
 export const dynamic = 'force-dynamic';
 
@@ -39,23 +40,19 @@ export async function GET(
       // Try to find default model
       const defaultModelMatch = agentsContent.match(/\*\*Default model:\*\*\s*`([^`]+)`/);
       if (defaultModelMatch) {
-        // Extract and shorten the model name
         let model = defaultModelMatch[1].trim();
-        // Strip version date suffix (e.g. claude-sonnet-4-20250514 → claude-sonnet-4)
         model = model.replace(/-\d{8}$/, '');
         if (model !== 'claude-sonnet-4-6') {
           model = model.replace(/-6$/, '');
         }
         defaultModel = model;
       } else {
-        // Look for first entry under Model Preferences section
         const modelPrefsMatch = agentsContent.match(/## Model Preferences[\s\S]*?(?=\n##|$)/);
         if (modelPrefsMatch) {
           const prefsSection = modelPrefsMatch[0];
           const firstModelMatch = prefsSection.match(/\*\*[^:]+:\*\*\s*(claude-[^\s-]+(?:-\d+)?)/);
           if (firstModelMatch) {
             let model = firstModelMatch[1].trim();
-            // Strip version date suffix
             model = model.replace(/-\d{8}$/, '');
             if (model !== 'claude-sonnet-4-6') {
               model = model.replace(/-6$/, '');
@@ -65,44 +62,35 @@ export async function GET(
         }
       }
       
-      // Try to find "Primary Focus" line (better description)
       const focusMatch = agentsContent.match(/\*\*Primary Focus:\*\*\s*(.+)/);
       if (focusMatch) {
-        // Remove emoji from description
         description = focusMatch[1].trim().replace(/[\u{1F300}-\u{1F9FF}]/gu, '').trim();
       } else {
-        // Fall back to first paragraph after headers, but skip Identity section
         const lines = agentsContent.split('\n');
         let inIdentitySection = false;
         
         for (const line of lines) {
           const trimmed = line.trim();
           
-          // Skip empty lines and headers
           if (!trimmed || trimmed.startsWith('#')) {
-            // Check if this is the Identity section header
             if (trimmed.toLowerCase().includes('## identity')) {
               inIdentitySection = true;
             } else if (trimmed.startsWith('##')) {
-              inIdentitySection = false; // Moved to a different section
+              inIdentitySection = false;
             }
             continue;
           }
           
-          // Skip lines in Identity section (bullet points with Name, Label, etc.)
           if (inIdentitySection) continue;
-          
-          // Skip markdown bullets/lists
           if (trimmed.startsWith('-') || trimmed.startsWith('*')) continue;
           
-          // Found a good description line - remove emoji
           description = trimmed.replace(/[\u{1F300}-\u{1F9FF}]/gu, '').trim();
           break;
         }
       }
     }
 
-    // Read memory — store paths relative to workspace root so workspace links resolve correctly
+    // Read memory
     let memorySize = 0;
     const memoryFiles: string[] = [];
     const memoryPath = path.join(agentPath, 'MEMORY.md');
@@ -112,14 +100,13 @@ export async function GET(
       memoryFiles.push(`agents/${label}/MEMORY.md`);
     }
 
-    // Read daily memory files
     const memoryDir = path.join(agentPath, 'memory');
     if (fs.existsSync(memoryDir)) {
       const dailyFiles = fs.readdirSync(memoryDir)
         .filter(f => f.endsWith('.md'))
         .sort()
         .reverse()
-        .slice(0, 7); // Last 7 days
+        .slice(0, 7);
       
       for (const file of dailyFiles) {
         const filePath = path.join(memoryDir, file);
@@ -129,14 +116,13 @@ export async function GET(
       }
     }
 
-    // Format memory size
     const formatSize = (bytes: number) => {
       if (bytes < 1024) return `${bytes}B`;
       if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`;
       return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
     };
 
-    // Check config.json for a user-saved preferred model (overrides AGENTS.md default)
+    // Check config.json for a user-saved preferred model
     const configPath = path.join(agentPath, 'config.json');
     let preferredModel: string | null = null;
     if (fs.existsSync(configPath)) {
@@ -144,6 +130,47 @@ export async function GET(
         const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
         if (config.preferredModel) preferredModel = config.preferredModel;
       } catch { /* ignore parse errors */ }
+    }
+
+    // Pull real last-active + status from activity_log
+    let lastActive = 'never';
+    let status = 'idle';
+    let messageCount = 0;
+    try {
+      const lastEntry = (db as any).prepare(
+        `SELECT timestamp, action_type FROM activity_log WHERE agent_label = ? ORDER BY timestamp DESC LIMIT 1`
+      ).get(label) as { timestamp: number; action_type: string } | undefined;
+
+      if (lastEntry) {
+        const ageMs = Date.now() - lastEntry.timestamp;
+        const ageMins = Math.floor(ageMs / 60000);
+        const ageHours = Math.floor(ageMins / 60);
+        const ageDays = Math.floor(ageHours / 24);
+
+        if (ageMins < 60) {
+          lastActive = `${ageMins}m ago`;
+        } else if (ageHours < 24) {
+          lastActive = `${ageHours}h ago`;
+        } else {
+          lastActive = `${ageDays}d ago`;
+        }
+
+        // "active" if last entry was within 2 hours and was an in-progress action type
+        if (ageMs < 2 * 60 * 60 * 1000 && ['started', 'commit', 'pr_opened', 'research', 'analysis', 'writing', 'content'].includes(lastEntry.action_type)) {
+          status = 'active';
+        } else if (ageMs < 7 * 24 * 60 * 60 * 1000) {
+          status = 'idle';
+        } else {
+          status = 'inactive';
+        }
+      }
+
+      const countRow = (db as any).prepare(
+        `SELECT COUNT(*) as cnt FROM activity_log WHERE agent_label = ?`
+      ).get(label) as { cnt: number } | undefined;
+      if (countRow) messageCount = countRow.cnt;
+    } catch (e) {
+      // activity_log query failed — fall back to defaults
     }
 
     const agent = {
@@ -156,10 +183,9 @@ export async function GET(
         files: memoryFiles
       },
       workspacePath: agentPath,
-      // TODO: Get session data from OpenClaw sessions API
-      status: 'idle',
-      messageCount: 0,
-      lastActive: 'never',
+      status,
+      messageCount,
+      lastActive,
       model: preferredModel ?? defaultModel
     };
 

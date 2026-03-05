@@ -48,6 +48,8 @@ export async function POST(request: Request) {
       linear_issue_id: null,
       linear_identifier: null,
       linear_url: null,
+      intel_id: null,
+      source: 'manual',
     };
 
     createSuggestion(suggestion);

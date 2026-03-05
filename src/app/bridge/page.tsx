@@ -1,9 +1,9 @@
-'use client';
+"use client";
 
-import { useEffect, useState, useCallback } from 'react';
-import { useAuth } from '@/components/AuthWrapper';
-import { useRouter } from 'next/navigation';
-import Link from 'next/link';
+import { useEffect, useState, useCallback } from "react";
+import { useAuth } from "@/components/AuthWrapper";
+import { useRouter } from "next/navigation";
+import Link from "next/link";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -14,9 +14,9 @@ interface WorkProposal {
   linear_url: string | null;
   title: string;
   why: string | null;
-  effort: 'low' | 'medium' | 'high';
+  effort: "low" | "medium" | "high";
   repo: string | null;
-  status: 'proposed' | 'approved' | 'rejected' | 'in_progress' | 'done';
+  status: "proposed" | "approved" | "idea" | "backlog" | "queued" | "in_progress" | "in_review" | "completed" | "rejected" | "dismissed";
   branch_name: string | null;
   pr_url: string | null;
   pr_number: number | null;
@@ -25,16 +25,9 @@ interface WorkProposal {
   completed_at: number | null;
   rejected_at: number | null;
   notes: string | null;
-}
-
-interface ActivityEntry {
-  id: string;
-  timestamp: number;
-  agent_label: string;
-  action_type: string;
-  summary: string;
-  details: string | null;
-  links: string;
+  intel_id: string | null;
+  source: string;
+  category: string;
 }
 
 interface PRItem {
@@ -44,37 +37,19 @@ interface PRItem {
   state: string;
   url: string;
   createdAt: string;
+  mergedAt?: string;
   author: string;
 }
 
-interface LinearIssue {
+interface Report {
   id: string;
-  identifier: string;
   title: string;
-  state: {
-    name: string;
-    type: string;
-  };
-  priority: number;
+  type: string;
   url: string;
+  created_at: number;
 }
 
-interface SynthesisData {
-  whatsWorking: string[];
-  needsAttention: string[];
-  now: string[];
-  next: string[];
-  later: string[];
-}
-
-interface GSCQuery {
-  query: string;
-  clicks: number;
-  impressions: number;
-  ctr: number;
-  position: number;
-  site: string;
-}
+type Category = "landing-page" | "content" | "paid-product" | "feature" | "saas" | "promotion";
 
 // ─── Bridge Page ──────────────────────────────────────────────────────────────
 
@@ -84,90 +59,74 @@ export default function BridgePage() {
 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [selectedCategory, setSelectedCategory] = useState<Category>("landing-page");
 
-  // Work Proposals
-  const [proposals, setProposals] = useState<{
-    proposed: WorkProposal[];
-    approved: WorkProposal[];
-    in_progress: WorkProposal[];
-  }>({ proposed: [], approved: [], in_progress: [] });
-  const [generating, setGenerating] = useState(false);
+  // Work Proposals by category
+  const [proposals, setProposals] = useState<Record<string, WorkProposal[]>>({
+    "landing-page": [],
+    "content": [],
+    "paid-product": [],
+    "feature": [],
+    "saas": [],
+  });
 
-  // Other data
-  const [activity, setActivity] = useState<ActivityEntry[]>([]);
-  const [prs, setPrs] = useState<PRItem[]>([]);
-  const [linearIssues, setLinearIssues] = useState<LinearIssue[]>([]);
-  const [synthesis, setSynthesis] = useState<SynthesisData | null>(null);
-  const [ga4Data, setGa4Data] = useState<any>(null);
-  const [gscData, setGscData] = useState<any>(null);
-  const [intelData, setIntelData] = useState<any>(null);
+  // Promotion tab data
+  const [recentReports, setRecentReports] = useState<Report[]>([]);
+  const [recentPRs, setRecentPRs] = useState<PRItem[]>([]);
+  const [overnightEnabled, setOvernightEnabled] = useState(false);
+  const [overnightQueued, setOvernightQueued] = useState(0);
+  const [overnightToggling, setOvernightToggling] = useState(false);
 
   // Fetch all data
   const fetchData = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
 
     try {
-      // Fetch work proposals
-      const proposalsRes = await fetch('/api/bridge/proposals');
-      if (proposalsRes.ok) {
-        const data = await proposalsRes.json();
-        setProposals({
-          proposed: data.proposed || [],
-          approved: data.approved || [],
-          in_progress: data.in_progress || [],
-        });
+      // Fetch work proposals for each category
+      const categories = ["landing-page", "content", "paid-product", "feature", "saas"];
+      const proposalData: Record<string, WorkProposal[]> = {};
+      
+      for (const category of categories) {
+        const res = await fetch(`/api/bridge/proposals?category=${category}`);
+        if (res.ok) {
+          const data = await res.json();
+          const HIDDEN_STATUSES = ["completed", "rejected", "dismissed"];
+          proposalData[category] = (data.proposals || []).filter((p: WorkProposal) => !HIDDEN_STATUSES.includes(p.status));
+        }
+      }
+      
+      setProposals(proposalData);
+
+      // Fetch recent reports (last 7 days)
+      const reportsRes = await fetch("/api/reports?limit=50");
+      if (reportsRes.ok) {
+        const data = await reportsRes.json();
+        const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+        const recent = data.reports
+          .filter((r: any) => r.created_at > sevenDaysAgo)
+          .map((r: any) => ({
+            id: r.id,
+            title: r.title,
+            type: r.type,
+            url: `https://superclaw.skunkglobal.com/reports/${r.id}`,
+            created_at: r.created_at,
+          }));
+        setRecentReports(recent);
       }
 
-      // Fetch activity
-      const activityRes = await fetch('/api/activity?limit=10');
-      if (activityRes.ok) {
-        const data = await activityRes.json();
-        setActivity(data.activity || []);
-      }
-
-      // Fetch PRs
-      const prsRes = await fetch('/api/github-activity/prs');
+      // Fetch recent PRs (last 7 days, merged only)
+      const prsRes = await fetch("/api/github-activity/prs");
       if (prsRes.ok) {
         const data = await prsRes.json();
-        setPrs(data.prs || []);
-      }
-
-      // Fetch Linear issues
-      const linearRes = await fetch('/api/linear/issues');
-      if (linearRes.ok) {
-        const data = await linearRes.json();
-        setLinearIssues(data.issues || []);
-      }
-
-      // Fetch synthesis
-      const synthesisRes = await fetch('/api/bridge/synthesis');
-      if (synthesisRes.ok) {
-        const data = await synthesisRes.json();
-        setSynthesis(data.synthesis || null);
-      }
-
-      // Fetch GA4 data
-      const ga4Res = await fetch('/api/bridge/ga4');
-      if (ga4Res.ok) {
-        const data = await ga4Res.json();
-        setGa4Data(data);
-      }
-
-      // Fetch GSC data
-      const gscRes = await fetch('/api/bridge/gsc');
-      if (gscRes.ok) {
-        const data = await gscRes.json();
-        setGscData(data);
-      }
-
-      // Fetch intel
-      const intelRes = await fetch('/api/bridge/intel');
-      if (intelRes.ok) {
-        const data = await intelRes.json();
-        setIntelData(data);
+        const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+        const recent = data.prs
+          .filter((pr: PRItem) => 
+            pr.mergedAt && new Date(pr.mergedAt).getTime() > sevenDaysAgo
+          );
+        setRecentPRs(recent);
       }
     } catch (error) {
-      console.error('Failed to fetch bridge data:', error);
+      console.error("Failed to fetch bridge data:", error);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -180,39 +139,54 @@ export default function BridgePage() {
     }
   }, [authLoading, user, fetchData]);
 
+  const handleOvernightToggle = async () => {
+    setOvernightToggling(true);
+    try {
+      const res = await fetch("/api/overnight", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: overnightEnabled ? "stop" : "start" }),
+      });
+      if (res.ok) {
+        setOvernightEnabled(!overnightEnabled);
+        fetchData(true);
+      }
+    } catch (e) {
+      console.error("Failed to toggle overnight mode", e);
+    } finally {
+      setOvernightToggling(false);
+    }
+  };
+
   const handleRefresh = () => {
     setRefreshing(true);
     fetchData(true);
   };
 
-  const handleGenerateProposals = async () => {
-    setGenerating(true);
-    try {
-      const res = await fetch('/api/bridge/proposals/generate', { method: 'POST' });
-      if (res.ok) {
-        const data = await res.json();
-        // Refresh proposals
-        fetchData(true);
-      }
-    } catch (error) {
-      console.error('Failed to generate proposals:', error);
-    } finally {
-      setGenerating(false);
-    }
-  };
-
-  const handleProposalAction = async (id: string, action: 'approve' | 'reject' | 'start') => {
+  const handleProposalAction = async (
+    id: string,
+    action:
+      | "add_to_backlog"
+      | "queue"
+      | "unqueue"
+      | "move_to_ideas"
+      | "start"
+      | "mark_review"
+      | "mark_complete"
+      | "reject"
+      | "dismiss"
+  ) => {
     try {
       const res = await fetch(`/api/bridge/proposals/${id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action }),
       });
       if (res.ok) {
         fetchData(true);
       }
     } catch (error) {
-      console.error('Failed to update proposal:', error);
+      console.error("Failed to update proposal:", error);
     }
   };
 
@@ -224,482 +198,286 @@ export default function BridgePage() {
     );
   }
 
-  const openPRs = prs.filter(pr => pr.state === 'OPEN');
-  const blockers = activity.filter(a => a.action_type === 'blocked').slice(0, 3);
-  const reviewIssues = linearIssues.filter(issue => 
-    issue.state.name.toLowerCase().includes('review')
-  );
-  const inProgressIssues = linearIssues.filter(issue => 
-    issue.state.type === 'started'
-  ).slice(0, 3);
-  const todoIssues = linearIssues.filter(issue => 
-    issue.state.type === 'unstarted'
-  ).slice(0, 3);
-
-  const getPriorityColor = (priority: number) => {
-    if (priority === 1) return 'bg-red-500';
-    if (priority === 2) return 'bg-orange-500';
-    return 'bg-zinc-500';
-  };
-
   const getEffortBadge = (effort: string) => {
     const colors: Record<string, string> = {
-      low: 'bg-green-500/10 text-green-400 border-green-500/20',
-      medium: 'bg-orange-500/10 text-orange-400 border-orange-500/20',
-      high: 'bg-red-500/10 text-red-400 border-red-500/20',
+      low: "bg-green-500/10 text-green-400 border-green-500/20",
+      medium: "bg-orange-500/10 text-orange-400 border-orange-500/20",
+      high: "bg-red-500/10 text-red-400 border-red-500/20",
     };
     return colors[effort] || colors.medium;
   };
 
+  const renderProposalCard = (proposal: WorkProposal) => (
+    <div key={proposal.id} className="px-4 sm:px-5 py-3.5 flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 hover:bg-zinc-800/30 transition-colors">
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 mb-1 flex-wrap">
+          {proposal.linear_identifier && (
+            <span className="text-xs font-mono text-zinc-500 flex-shrink-0">
+              {proposal.linear_identifier}
+            </span>
+          )}
+          {proposal.repo && (
+            <span className="text-xs px-1.5 py-0.5 bg-zinc-800 text-zinc-500 rounded border border-zinc-700 flex-shrink-0">
+              {proposal.repo}
+            </span>
+          )}
+          <span
+            className={`px-1.5 py-0.5 text-xs rounded border ${getEffortBadge(proposal.effort)} flex-shrink-0`}
+          >
+            {proposal.effort}
+          </span>
+        </div>
+        <p className="text-sm text-white font-medium leading-snug">{proposal.title}</p>
+        {proposal.why && (
+          <p className="text-xs text-zinc-500 mt-1 leading-snug line-clamp-2">{proposal.why}</p>
+        )}
+        {proposal.pr_url && (
+          <a
+            href={proposal.pr_url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-block mt-2 px-3 py-1.5 bg-[#E50914] hover:bg-[#c40812] text-white text-xs font-medium rounded transition-colors"
+          >
+            View PR #{proposal.pr_number}
+          </a>
+        )}
+      </div>
+      <div className="flex items-center gap-1.5 flex-shrink-0 pt-0.5 flex-wrap sm:flex-nowrap">
+        {(proposal.status === "proposed" || proposal.status === "idea") && (
+          <>
+            <button onClick={() => handleProposalAction(proposal.id, "queue")} className="px-2.5 py-1 bg-orange-500/10 hover:bg-orange-500/20 text-orange-400 border border-orange-500/20 text-xs font-medium rounded transition-colors">Queue</button>
+            <button onClick={() => handleProposalAction(proposal.id, "add_to_backlog")} className="px-2.5 py-1 bg-zinc-800 hover:bg-zinc-700 text-white text-xs font-medium rounded transition-colors">Approve</button>
+            <button onClick={() => handleProposalAction(proposal.id, "dismiss")} className="px-2.5 py-1 bg-zinc-800 hover:bg-zinc-700 text-zinc-400 text-xs font-medium rounded transition-colors">Dismiss</button>
+          </>
+        )}
+        {proposal.status === "backlog" && (
+          <button onClick={() => handleProposalAction(proposal.id, "queue")} className="px-2.5 py-1 bg-orange-500/10 hover:bg-orange-500/20 text-orange-400 border border-orange-500/20 text-xs font-medium rounded transition-colors">Queue for tonight</button>
+        )}
+        {proposal.status === "queued" && (
+          <button onClick={() => handleProposalAction(proposal.id, "unqueue")} className="px-2.5 py-1 bg-zinc-800 hover:bg-zinc-700 text-zinc-400 text-xs font-medium rounded transition-colors">Unqueue</button>
+        )}
+      </div>
+    </div>
+  );
+
+  const renderPromotionTab = () => {
+    const encodeForReddit = (title: string, url: string) => {
+      return `https://reddit.com/submit?url=${encodeURIComponent(url)}&title=${encodeURIComponent(title)}`;
+    };
+
+    const encodeForTwitter = (text: string, url: string) => {
+      return `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(url)}`;
+    };
+
+    return (
+      <div className="divide-y divide-zinc-800/60">
+        {recentReports.length === 0 && recentPRs.length === 0 ? (
+          <div className="flex items-center justify-center py-16 text-zinc-600 text-sm">
+            Nothing to promote this week
+          </div>
+        ) : (
+          <>
+            {recentReports.length > 0 && (
+              <div className="p-5">
+                <h3 className="text-xs font-semibold text-zinc-400 uppercase tracking-wide mb-3">Recent Content</h3>
+                <div className="space-y-3">
+                  {recentReports.map((report) => (
+                    <div key={report.id} className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 p-3 bg-zinc-800/30 rounded-lg">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm text-white font-medium leading-snug">{report.title}</p>
+                        <p className="text-xs text-zinc-500 mt-1">
+                          {new Date(report.created_at).toLocaleDateString()} • {report.type}
+                        </p>
+                      </div>
+                      <div className="flex gap-2 flex-shrink-0 flex-wrap">
+                        <a
+                          href={encodeForReddit(report.title, report.url)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="px-3 py-1.5 bg-[#FF4500] hover:bg-[#FF5700] text-white text-xs font-medium rounded transition-colors"
+                        >
+                          Reddit
+                        </a>
+                        <a
+                          href={encodeForTwitter(report.title, report.url)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="px-3 py-1.5 bg-[#1DA1F2] hover:bg-[#1A8CD8] text-white text-xs font-medium rounded transition-colors"
+                        >
+                          X
+                        </a>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            {recentPRs.length > 0 && (
+              <div className="p-5">
+                <h3 className="text-xs font-semibold text-zinc-400 uppercase tracking-wide mb-3">Recent Merges</h3>
+                <div className="space-y-3">
+                  {recentPRs.map((pr) => (
+                    <div key={`${pr.repo}-${pr.number}`} className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 p-3 bg-zinc-800/30 rounded-lg">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm text-white font-medium leading-snug">{pr.title}</p>
+                        <p className="text-xs text-zinc-500 mt-1">
+                          {pr.repo} #{pr.number} • Merged {pr.mergedAt ? new Date(pr.mergedAt).toLocaleDateString() : ''}
+                        </p>
+                      </div>
+                      <div className="flex gap-2 flex-shrink-0 flex-wrap">
+                        <a
+                          href={encodeForReddit(`${pr.title} (${pr.repo})`, pr.url)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="px-3 py-1.5 bg-[#FF4500] hover:bg-[#FF5700] text-white text-xs font-medium rounded transition-colors"
+                        >
+                          Reddit
+                        </a>
+                        <a
+                          href={encodeForTwitter(`Just shipped: ${pr.title}`, pr.url)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="px-3 py-1.5 bg-[#1DA1F2] hover:bg-[#1A8CD8] text-white text-xs font-medium rounded transition-colors"
+                        >
+                          X
+                        </a>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    );
+  };
+
+  const categoryConfig = [
+    { key: "landing-page", label: "Landing Pages & Lead Magnets", shortLabel: "Landing Pages", count: proposals["landing-page"]?.length || 0 },
+    { key: "content", label: "Content Clusters", shortLabel: "Content", count: proposals["content"]?.length || 0 },
+    { key: "paid-product", label: "Paid Products", shortLabel: "Paid Products", count: proposals["paid-product"]?.length || 0 },
+    { key: "feature", label: "Skunk Suite Features", shortLabel: "Features", count: proposals["feature"]?.length || 0 },
+    { key: "saas", label: "New SaaS / Microsites", shortLabel: "SaaS / Microsites", count: proposals["saas"]?.length || 0 },
+    { key: "promotion", label: "Promotion", shortLabel: "Promotion", count: recentReports.length + recentPRs.length },
+  ];
+
+  const visibleProposals = selectedCategory === "promotion" ? [] : (proposals[selectedCategory] || []);
+
   return (
     <div className="min-h-screen bg-zinc-950">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8">
-        
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4 sm:py-8">
         {/* Header */}
-        <div className="mb-8 flex items-start justify-between flex-wrap gap-4">
+        <div className="mb-4 sm:mb-8 flex items-start justify-between flex-wrap gap-3">
           <div>
             <h1 className="text-2xl font-bold text-white">The Bridge</h1>
-            <p className="text-sm text-zinc-500 mt-1">Operations center</p>
+            <p className="text-sm text-zinc-500 mt-1">Product work hub</p>
           </div>
           <div className="flex items-center gap-3">
-            <Link
-              href="/bridge/settings"
-              className="px-4 py-2 bg-zinc-900 hover:bg-zinc-800 text-zinc-400 rounded-lg text-sm font-medium transition-colors border border-zinc-800"
+            <button
+              onClick={handleOvernightToggle}
+              disabled={overnightToggling}
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors border flex items-center gap-2 ${
+                overnightEnabled
+                  ? "bg-orange-500/10 border-orange-500/30 text-orange-400 hover:bg-orange-500/20"
+                  : "bg-zinc-800 border-zinc-700 text-zinc-400 hover:bg-zinc-700"
+              }`}
             >
-              Settings
-            </Link>
+              <span className={`w-2 h-2 rounded-full flex-shrink-0 ${overnightEnabled ? "bg-orange-400" : "bg-zinc-600"}`} />
+              {overnightEnabled ? `Overnight on${overnightQueued > 0 ? ` (${overnightQueued} queued)` : ""}` : "Overnight off"}
+            </button>
             <button
               onClick={handleRefresh}
               disabled={refreshing}
-              className="px-4 py-2 bg-orange-500/10 hover:bg-orange-500/20 text-orange-400 rounded-lg text-sm font-medium transition-colors border border-orange-500/20 flex items-center gap-2"
+              className="px-4 py-2 bg-[#E50914]/10 hover:bg-[#E50914]/20 text-[#E50914] rounded-lg text-sm font-medium transition-colors border border-[#E50914]/20 flex items-center gap-2"
             >
-              <svg className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              <svg
+                className={`w-4 h-4 ${refreshing ? "animate-spin" : ""}`}
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                />
               </svg>
-              {refreshing ? 'Refreshing...' : 'Refresh'}
+              {refreshing ? "Refreshing..." : "Refresh"}
             </button>
           </div>
         </div>
 
-        {/* 1. WORK QUEUE */}
-        <section className="mb-10">
-          <h2 className="text-xs font-semibold text-white tracking-wide uppercase mb-4">Work Queue</h2>
+        {/* PRODUCT WORK TABS */}
+        <section className="mb-6 sm:mb-10">
+          <h2 className="text-xs font-semibold text-white tracking-wide uppercase mb-4">Product Work</h2>
 
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-
-            {/* LEFT: Proposals */}
-            <div className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden">
-              <div className="flex items-center justify-between px-5 py-4 border-b border-zinc-800">
-                <div className="flex items-center gap-2">
-                  <h3 className="text-xs font-semibold text-orange-400 uppercase">Proposals</h3>
-                  {proposals.proposed.length > 0 && (
-                    <span className="px-2 py-0.5 bg-orange-500/10 text-orange-400 text-xs font-medium rounded border border-orange-500/20">
-                      {proposals.proposed.length}
-                    </span>
-                  )}
-                </div>
-                <button
-                  onClick={handleGenerateProposals}
-                  disabled={generating}
-                  className="px-3 py-1.5 bg-orange-500 hover:bg-orange-600 text-white text-xs font-medium rounded-lg transition-colors disabled:opacity-50"
-                >
-                  {generating ? 'Generating...' : 'Propose Work'}
-                </button>
-              </div>
-
-              {proposals.proposed.length === 0 ? (
-                <div className="px-5 py-10 text-center">
-                  <p className="text-sm text-zinc-500">No proposals yet.</p>
-                  <p className="text-xs text-zinc-600 mt-1">Hit &lsquo;Propose Work&rsquo; to scan the Linear backlog.</p>
-                </div>
-              ) : (
-                <div className="divide-y divide-zinc-800">
-                  {proposals.proposed.map((proposal) => (
-                    <div key={proposal.id} className="px-5 py-3.5 flex items-start justify-between gap-3">
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-1">
-                          {proposal.linear_identifier && (
-                            <span className="text-xs font-mono text-zinc-500 flex-shrink-0">{proposal.linear_identifier}</span>
-                          )}
-                          <span className={`px-1.5 py-0.5 text-xs rounded border ${getEffortBadge(proposal.effort)} flex-shrink-0`}>
-                            {proposal.effort}
-                          </span>
-                        </div>
-                        <p className="text-sm text-white font-medium leading-snug">{proposal.title}</p>
-                        {proposal.why && (
-                          <p className="text-xs text-zinc-500 mt-1 leading-snug line-clamp-2">{proposal.why}</p>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-1.5 flex-shrink-0 pt-0.5">
-                        <button
-                          onClick={() => handleProposalAction(proposal.id, 'reject')}
-                          className="px-2.5 py-1 bg-zinc-800 hover:bg-zinc-700 text-zinc-400 text-xs font-medium rounded transition-colors"
-                        >
-                          Reject
-                        </button>
-                        <button
-                          onClick={() => handleProposalAction(proposal.id, 'approve')}
-                          className="px-2.5 py-1 bg-green-600 hover:bg-green-500 text-white text-xs font-medium rounded transition-colors"
-                        >
-                          Approve
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {/* RIGHT: Ready to Start + In Progress */}
-            <div className="flex flex-col gap-4">
-
-              {/* Approved — Ready to Start */}
-              <div className="bg-zinc-900 border border-green-500/20 rounded-xl overflow-hidden">
-                <div className="flex items-center gap-2 px-5 py-4 border-b border-green-500/10">
-                  <h3 className="text-xs font-semibold text-green-400 uppercase">Ready to Start</h3>
-                  <span className="px-2 py-0.5 bg-green-500/10 text-green-400 text-xs font-medium rounded border border-green-500/20">
-                    {proposals.approved.length}
-                  </span>
-                </div>
-                {proposals.approved.length === 0 ? (
-                  <div className="px-5 py-6 text-center">
-                    <p className="text-xs text-zinc-600">Approve proposals to queue them here. Clawd picks these up at the next heartbeat.</p>
-                  </div>
-                ) : (
-                  <div className="divide-y divide-zinc-800/60">
-                    {proposals.approved.map((proposal) => (
-                      <div key={proposal.id} className="px-5 py-3.5 flex items-start justify-between gap-3">
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 mb-0.5">
-                            {proposal.linear_identifier && (
-                              <span className="text-xs font-mono text-zinc-500 flex-shrink-0">{proposal.linear_identifier}</span>
-                            )}
-                            <span className={`px-1.5 py-0.5 text-xs rounded border ${getEffortBadge(proposal.effort)} flex-shrink-0`}>
-                              {proposal.effort}
-                            </span>
-                          </div>
-                          <p className="text-sm text-white font-medium leading-snug">{proposal.title}</p>
-                          {proposal.notes && (
-                            <p className="text-xs text-zinc-500 mt-0.5 leading-snug line-clamp-1">{proposal.notes}</p>
-                          )}
-                        </div>
-                        <button
-                          onClick={() => handleProposalAction(proposal.id, 'start')}
-                          className="flex-shrink-0 px-2.5 py-1 bg-green-600 hover:bg-green-500 text-white text-xs font-medium rounded transition-colors"
-                        >
-                          Start now
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              {/* In Progress */}
-              <div className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden">
-                <div className="flex items-center gap-2 px-5 py-4 border-b border-zinc-800">
-                  <h3 className="text-xs font-semibold text-blue-400 uppercase">In Progress</h3>
-                  {proposals.in_progress.length > 0 && (
-                    <span className="px-2 py-0.5 bg-blue-500/10 text-blue-400 text-xs font-medium rounded border border-blue-500/20">
-                      {proposals.in_progress.length}
-                    </span>
-                  )}
-                </div>
-                {proposals.in_progress.length === 0 ? (
-                  <div className="px-5 py-6 text-center">
-                    <p className="text-xs text-zinc-600">Nothing running right now.</p>
-                  </div>
-                ) : (
-                  <div className="divide-y divide-zinc-800">
-                    {proposals.in_progress.map((proposal) => (
-                      <div key={proposal.id} className="px-5 py-3.5">
-                        <div className="flex items-center gap-2 mb-0.5">
-                          {proposal.linear_identifier && (
-                            <span className="text-xs font-mono text-zinc-500">{proposal.linear_identifier}</span>
-                          )}
-                        </div>
-                        <p className="text-sm text-white font-medium leading-snug">{proposal.title}</p>
-                        <div className="flex items-center gap-3 mt-1.5 text-xs text-zinc-500">
-                          {proposal.branch_name && (
-                            <span className="font-mono truncate max-w-[180px]">{proposal.branch_name}</span>
-                          )}
-                          {proposal.pr_url && (
-                            <a
-                              href={proposal.pr_url}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-orange-400 hover:text-orange-300 flex-shrink-0"
-                            >
-                              PR #{proposal.pr_number} →
-                            </a>
-                          )}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-            </div>
-          </div>
-        </section>
-
-        {/* 2. Needs Your Attention */}
-        <section className="mb-10">
-          <h2 className="text-xs font-semibold text-white tracking-wide uppercase mb-4">Needs Your Attention</h2>
-          <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              
-              {/* Open PRs */}
-              <div>
-                <h3 className="text-xs font-semibold text-orange-400 uppercase mb-3">Open PRs</h3>
-                {openPRs.length === 0 ? (
-                  <p className="text-sm text-zinc-600">No PRs waiting</p>
-                ) : (
-                  <div className="space-y-3">
-                    {openPRs.map((pr) => (
-                      <div key={pr.number} className="border-l-2 border-orange-500 pl-3">
-                        <a 
-                          href={pr.url} 
-                          target="_blank" 
-                          rel="noopener noreferrer" 
-                          className="text-sm text-white hover:text-orange-400 transition-colors block"
-                        >
-                          {pr.title}
-                        </a>
-                        <p className="text-xs text-zinc-600 mt-1">{pr.repo}</p>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              {/* Linear - In Review */}
-              <div>
-                <h3 className="text-xs font-semibold text-blue-400 uppercase mb-3">Linear — In Review</h3>
-                {reviewIssues.length === 0 ? (
-                  <p className="text-sm text-zinc-600">Nothing in review</p>
-                ) : (
-                  <div className="space-y-3">
-                    {reviewIssues.slice(0, 3).map((issue) => (
-                      <div key={issue.id} className="border-l-2 border-blue-500 pl-3">
-                        <a 
-                          href={issue.url} 
-                          target="_blank" 
-                          rel="noopener noreferrer" 
-                          className="text-sm text-white hover:text-blue-400 transition-colors block"
-                        >
-                          <span className="text-zinc-500 font-mono text-xs">{issue.identifier}</span> {issue.title}
-                        </a>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              {/* Blockers */}
-              <div>
-                <h3 className="text-xs font-semibold text-red-400 uppercase mb-3">Blockers</h3>
-                {blockers.length === 0 ? (
-                  <p className="text-sm text-zinc-600">No blockers</p>
-                ) : (
-                  <div className="space-y-3">
-                    {blockers.map((entry) => (
-                      <div key={entry.id} className="border-l-2 border-red-500 pl-3">
-                        <p className="text-sm text-white">{entry.summary}</p>
-                        <p className="text-xs text-zinc-600 mt-1">{entry.agent_label}</p>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        </section>
-
-        {/* 3. Growth */}
-        <section className="mb-10">
-          <h2 className="text-xs font-semibold text-white tracking-wide uppercase mb-4">Growth</h2>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            
-            {/* Traffic */}
-            <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6">
-              <h3 className="text-xs font-semibold text-zinc-400 uppercase mb-3">Traffic</h3>
-              {ga4Data ? (
-                <>
-                  <div className="flex items-baseline gap-3">
-                    <span className="text-2xl font-bold text-white">{ga4Data.sessions?.toLocaleString() || '0'}</span>
-                    {ga4Data.sessionsChange != null && (
-                      <span className={`text-sm font-medium ${ga4Data.sessionsChange > 0 ? 'text-green-400' : 'text-red-400'}`}>
-                        {ga4Data.sessionsChange > 0 ? '+' : ''}{ga4Data.sessionsChange.toFixed(1)}%
-                      </span>
-                    )}
-                  </div>
-                  <p className="text-xs text-zinc-500 mt-1">Sessions (7d)</p>
-                  {ga4Data.organicPercent != null && (
-                    <p className="text-sm text-zinc-400 mt-3">{ga4Data.organicPercent.toFixed(0)}% organic</p>
-                  )}
-                </>
-              ) : (
-                <p className="text-sm text-zinc-600">GA4 not connected</p>
-              )}
-            </div>
-
-            {/* Search */}
-            <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6">
-              <h3 className="text-xs font-semibold text-zinc-400 uppercase mb-3">Search</h3>
-              {gscData && gscData.topQueries ? (
-                <div className="space-y-2">
-                  {gscData.topQueries.slice(0, 5).map((q: GSCQuery, i: number) => (
-                    <div key={i} className="flex items-center justify-between">
-                      <span className="text-sm text-white truncate flex-1 mr-2">{q.query}</span>
-                      <div className="flex items-center gap-2 text-xs flex-shrink-0">
-                        <span className="text-zinc-500">{q.clicks}</span>
-                        <span className="text-zinc-600">#{q.position.toFixed(1)}</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-sm text-zinc-600">GSC not connected</p>
-              )}
-            </div>
-
-            {/* Opportunities */}
-            <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6">
-              <h3 className="text-xs font-semibold text-zinc-400 uppercase mb-3">Opportunities</h3>
-              {gscData && gscData.opportunities && gscData.opportunities.length > 0 ? (
-                <div className="space-y-3">
-                  {gscData.opportunities.slice(0, 3).map((q: GSCQuery, i: number) => (
-                    <div key={i}>
-                      <p className="text-sm text-white mb-1">{q.query}</p>
-                      <p className="text-xs text-orange-400">
-                        Position {q.position.toFixed(1)} — push to page 1
-                      </p>
-                      <p className="text-xs text-zinc-600 mt-0.5">{q.impressions.toLocaleString()} impressions</p>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-sm text-zinc-600">No GSC data</p>
-              )}
-            </div>
-          </div>
-        </section>
-
-        {/* 4. Strategic Brief */}
-        {synthesis && (
-          <section className="mb-10">
-            <h2 className="text-xs font-semibold text-white tracking-wide uppercase mb-4">Strategic Brief</h2>
-            <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-                <div>
-                  <h3 className="text-xs font-semibold text-green-400 uppercase mb-2">What's Working</h3>
-                  <ul className="space-y-1.5">
-                    {synthesis.whatsWorking.map((item, i) => (
-                      <li key={i} className="text-sm text-zinc-400 flex items-start gap-2">
-                        <span className="w-1 h-1 rounded-full bg-green-400 flex-shrink-0 mt-1.5" />
-                        {item}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-                <div>
-                  <h3 className="text-xs font-semibold text-orange-400 uppercase mb-2">Needs Attention</h3>
-                  <ul className="space-y-1.5">
-                    {synthesis.needsAttention.map((item, i) => (
-                      <li key={i} className="text-sm text-zinc-400 flex items-start gap-2">
-                        <span className="w-1 h-1 rounded-full bg-orange-400 flex-shrink-0 mt-1.5" />
-                        {item}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              </div>
-
-              <div className="pt-6 border-t border-zinc-800">
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <div>
-                    <h3 className="text-xs font-semibold text-orange-400 uppercase mb-2">Now</h3>
-                    <ul className="space-y-1">
-                      {synthesis.now.map((item, i) => (
-                        <li key={i} className="text-xs text-zinc-500">{item}</li>
-                      ))}
-                    </ul>
-                  </div>
-                  <div>
-                    <h3 className="text-xs font-semibold text-zinc-500 uppercase mb-2">Next</h3>
-                    <ul className="space-y-1">
-                      {synthesis.next.map((item, i) => (
-                        <li key={i} className="text-xs text-zinc-600">{item}</li>
-                      ))}
-                    </ul>
-                  </div>
-                  <div>
-                    <h3 className="text-xs font-semibold text-zinc-600 uppercase mb-2">Later</h3>
-                    <ul className="space-y-1">
-                      {synthesis.later.map((item, i) => (
-                        <li key={i} className="text-xs text-zinc-700">{item}</li>
-                      ))}
-                    </ul>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </section>
-        )}
-
-        {/* 5. Market Intelligence (NO "View all" link) */}
-        {intelData && intelData.intel && intelData.intel.length > 0 && (
-          <section>
-            <h2 className="text-xs font-semibold text-white tracking-wide uppercase mb-4">Market Intelligence</h2>
-            <div className="bg-zinc-900 border border-zinc-800 rounded-xl divide-y divide-zinc-800">
-              {intelData.intel.slice(0, 5).map((item: any) => {
-                const categoryColors: Record<string, string> = {
-                  competitor: 'bg-red-500/10 text-red-400 border-red-500/20',
-                  opportunity: 'bg-green-500/10 text-green-400 border-green-500/20',
-                  wordpress: 'bg-blue-500/10 text-blue-400 border-blue-500/20',
-                  market: 'bg-orange-500/10 text-orange-400 border-orange-500/20',
-                  seo: 'bg-purple-500/10 text-purple-400 border-purple-500/20',
-                };
-                const categoryColor = categoryColors[item.category] || 'bg-zinc-800 text-zinc-400 border-zinc-700';
-                const truncatedSummary = item.summary.length > 140
-                  ? item.summary.substring(0, 140) + '...'
-                  : item.summary;
-
+          <div className="flex flex-col sm:flex-row bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden min-h-[300px] sm:min-h-[500px]" >
+            {/* Mobile: 2-column grid tabs */}
+            <div className="sm:hidden grid grid-cols-2 border-b border-zinc-800 bg-zinc-900/80">
+              {categoryConfig.map((cat) => {
+                const isActive = selectedCategory === cat.key;
                 return (
-                  <div key={item.id} className="px-6 py-4">
-                    <div className="flex items-center gap-2 mb-1.5">
-                      <span className={`px-2 py-0.5 text-xs font-medium rounded border ${categoryColor}`}>
-                        {item.category}
+                  <button
+                    key={cat.key}
+                    onClick={() => setSelectedCategory(cat.key as Category)}
+                    className={`flex items-center justify-between px-3 py-2.5 text-left text-xs font-medium transition-colors border-b border-r border-zinc-800/60 last:border-r-0 ${
+                      isActive
+                        ? "bg-[#E50914]/10 text-white border-b-[#E50914]"
+                        : "text-zinc-500"
+                    }`}
+                  >
+                    <span className="leading-tight">{cat.shortLabel}</span>
+                    {cat.count > 0 && (
+                      <span className={`text-xs tabular-nums ml-1 flex-shrink-0 ${isActive ? "text-white" : "text-zinc-600"}`}>
+                        {cat.count}
                       </span>
-                      {item.relevance_score != null && (
-                        <span className="text-xs text-zinc-600">
-                          {typeof item.relevance_score === 'number'
-                            ? `${Math.round(item.relevance_score * 100)}% relevant`
-                            : item.relevance_score}
-                        </span>
-                      )}
-                    </div>
-                    {item.url ? (
-                      <a
-                        href={item.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-white hover:text-orange-400 transition-colors block mb-1"
-                      >
-                        {item.title}
-                      </a>
-                    ) : (
-                      <h4 className="text-white mb-1">{item.title}</h4>
                     )}
-                    <p className="text-sm text-zinc-500">{truncatedSummary}</p>
-                  </div>
+                  </button>
                 );
               })}
             </div>
-          </section>
-        )}
+
+            {/* Desktop: vertical sidebar */}
+            <div className="hidden sm:block w-60 flex-shrink-0 border-r border-zinc-800 py-2">
+              {categoryConfig.map((cat) => {
+                const isActive = selectedCategory === cat.key;
+                return (
+                  <button
+                    key={cat.key}
+                    onClick={() => setSelectedCategory(cat.key as Category)}
+                    className={`w-full flex items-center justify-between px-4 py-2.5 text-left transition-colors ${
+                      isActive
+                        ? "bg-[#E50914]/10 text-white"
+                        : "text-zinc-500 hover:bg-zinc-800/50 hover:text-zinc-300"
+                    }`}
+                  >
+                    <span className="text-xs font-medium">{cat.label}</span>
+                    {cat.count > 0 && (
+                      <span className={`text-xs tabular-nums ${isActive ? "text-white" : "text-zinc-600"}`}>
+                        {cat.count}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Main panel */}
+            <div className="flex-1 min-w-0 divide-y divide-zinc-800/60 overflow-y-auto">
+              {selectedCategory === "promotion" ? (
+                renderPromotionTab()
+              ) : visibleProposals.length === 0 ? (
+                <div className="flex items-center justify-center h-full py-16 text-zinc-600 text-sm">
+                  No proposals yet
+                </div>
+              ) : (
+                visibleProposals.map(renderProposalCard)
+              )}
+            </div>
+          </div>
+        </section>
       </div>
     </div>
   );
